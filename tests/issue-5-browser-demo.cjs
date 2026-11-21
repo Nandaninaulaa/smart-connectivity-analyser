@@ -45,7 +45,13 @@ async function openScenario(browser, scenario, viewport = { width: 1440, height:
         await route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify(scenario === "populated" || scenario === "ai-fallback" ? sampleHistory : [])
+          body: JSON.stringify(
+            scenario === "populated" ||
+            scenario === "ai-fallback" ||
+            scenario === "ai-explanation"
+              ? sampleHistory
+              : []
+          )
         });
       }
       return;
@@ -198,11 +204,39 @@ async function openScenario(browser, scenario, viewport = { width: 1440, height:
       const list = document.getElementById("anomalyExplanation");
       return list && !list.hidden && list.children.length === 3;
     }, { timeout: 20000 });
+    await explained.evaluate(() => {
+      const notice = document.createElement("p");
+      notice.id = "demoMockDataNotice";
+      notice.setAttribute("role", "status");
+      notice.className =
+        "rounded-lg bg-amber-100 px-4 py-2 text-sm font-semibold text-amber-900";
+      notice.textContent = "Demo only: using mock network data.";
+      document.querySelector("main").prepend(notice);
+    });
     const explanationText = await explanation.innerText();
+    assert.match(
+      await explained.locator("#demoMockDataNotice").innerText(),
+      /mock network data/i
+    );
+    assert.match(
+      await explained.locator("#predictionResult").innerText(),
+      /Predicted connectivity score|improving trend/i
+    );
+    assert.doesNotMatch(
+      await explained.locator("#anomalyResult").innerText(),
+      /Waiting for network data/i
+    );
+    assert.doesNotMatch(
+      await explained.locator("#recommendation").innerText(),
+      /Connect to the Internet to begin network analysis/i
+    );
     assert.match(explanationText, /Rank 1: Ping/);
     assert.match(explanationText, /observed 180\.00 ms/);
+    assert.match(explanationText, /58\.0% contribution/);
     assert.match(explanationText, /Rank 2: Packet loss/);
+    assert.match(explanationText, /32\.0% contribution/);
     assert.match(explanationText, /Rank 3: Upload speed/);
+    assert.match(explanationText, /8\.0% contribution/);
     assert.doesNotMatch(explanationText, /Download speed/);
     await explained.screenshot({
       path: path.join(output, "issue-5-ai-explanation.png"),
