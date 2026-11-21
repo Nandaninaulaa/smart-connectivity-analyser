@@ -17,21 +17,61 @@ def build_anomaly_explanation(
     reconstructed_values,
     scaler,
 ):
-    """Build per-network-metric diagnostics from the model's reconstruction."""
+    """Build per-network-metric reconstruction-error diagnostics.
+
+    ``contribution_percent`` is the share of the sum of squared normalized
+    reconstruction errors attributable to each available valid metric:
+    error_i^2 / sum(error_j^2) * 100.  It is not a probability and does not
+    prove that a metric caused the anomaly.
+    """
     diagnostics = []
 
-    for feature, name, unit in ANOMALY_METRICS:
-        if feature not in features:
-            continue
+    if not isinstance(features, (list, tuple)):
+        features = ()
+    if not isinstance(scaler, dict):
+        scaler = {}
 
-        index = features.index(feature)
+    scaler_features = scaler.get("features")
+    if not isinstance(scaler_features, (list, tuple)):
+        scaler_features = ()
+    if (
+        tuple(features) != tuple(scaler_features)
+        or len(features) == 0
+    ):
+        return {
+            "normalization": "relative_squared_reconstruction_error_shares",
+            "contribution_percent_note": (
+                "Percentages are relative squared reconstruction-error shares "
+                "among available valid metrics. They are not probabilities "
+                "and do not prove anomaly causation."
+            ),
+            "metrics": [],
+        }
+
+    metric_metadata = {
+        feature: (name, unit)
+        for feature, name, unit in ANOMALY_METRICS
+    }
+    mean_values = scaler.get("mean")
+    std_values = scaler.get("std")
+    if not isinstance(mean_values, (list, tuple)) or not isinstance(
+        std_values, (list, tuple)
+    ):
+        mean_values = ()
+        std_values = ()
+
+    for index, feature in enumerate(features):
+        metadata = metric_metadata.get(feature)
+        if metadata is None:
+            continue
+        name, unit = metadata
 
         if (
             index >= len(values)
             or index >= len(normalized_values)
             or index >= len(reconstructed_values)
-            or index >= len(scaler["mean"])
-            or index >= len(scaler["std"])
+            or index >= len(mean_values)
+            or index >= len(std_values)
         ):
             continue
 
@@ -39,8 +79,8 @@ def build_anomaly_explanation(
             observed = float(values[index])
             normalized = float(normalized_values[index])
             reconstructed = float(reconstructed_values[index])
-            mean = float(scaler["mean"][index])
-            scale = float(scaler["std"][index])
+            mean = float(mean_values[index])
+            scale = float(std_values[index])
         except (TypeError, ValueError):
             continue
 
@@ -80,22 +120,16 @@ def build_anomaly_explanation(
             }
         )
 
-    largest_error = max(
-        (item["normalized_error"] for item in diagnostics),
-        default=0.0,
-    )
-    scaled_squared_errors = [
-        (item["normalized_error"] / largest_error) ** 2
-        if largest_error > 0
-        else 0.0
+    squared_errors = [
+        item["normalized_error"] ** 2
         for item in diagnostics
     ]
-    total_scaled_error = sum(scaled_squared_errors)
+    total_squared_error = sum(squared_errors)
 
     for index, item in enumerate(diagnostics):
         item["contribution_percent"] = (
-            scaled_squared_errors[index] / total_scaled_error * 100
-            if total_scaled_error > 0
+            squared_errors[index] / total_squared_error * 100
+            if total_squared_error > 0
             else 0.0
         )
 
@@ -111,6 +145,11 @@ def build_anomaly_explanation(
         del item["_feature_index"]
 
     return {
-        "normalization": "share_of_five_metric_squared_errors",
+        "normalization": "relative_squared_reconstruction_error_shares",
+        "contribution_percent_note": (
+            "Percentages are relative squared reconstruction-error shares "
+            "among available valid metrics. They are not probabilities "
+            "and do not prove anomaly causation."
+        ),
         "metrics": diagnostics,
     }

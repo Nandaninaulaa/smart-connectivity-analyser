@@ -91,6 +91,97 @@ def test_normal_reconstruction_has_zero_metric_contributions():
     ]
     assert all(metric["normalized_error"] == 0 for metric in explanation["metrics"])
     assert all(metric["contribution_percent"] == 0 for metric in explanation["metrics"])
+    assert "not probabilities" in explanation["contribution_percent_note"]
+    assert "do not prove anomaly causation" in explanation["contribution_percent_note"]
+
+
+def test_feature_order_uses_model_and_scaler_order():
+    reordered_features = [
+        "packet_loss",
+        "jitter_ms",
+        "ping_ms",
+        "upload_mbps",
+        "download_mbps",
+        "connectivity_score",
+    ]
+    reordered_scaler = {
+        "features": reordered_features,
+        "mean": [0, 3, 20, 10, 50, 80],
+        "std": [1, 2, 10, 5, 10, 10],
+    }
+    explanation = build_anomaly_explanation(
+        reordered_features,
+        [0, 3, 20, 10, 50, 80],
+        [0, 0, 0, 0, 0, 0],
+        [5, 4, 3, 2, 1, 100],
+        reordered_scaler,
+    )
+
+    assert [metric["feature"] for metric in explanation["metrics"]] == [
+        "packet_loss",
+        "jitter_ms",
+        "ping_ms",
+        "upload_mbps",
+        "download_mbps",
+    ]
+    assert [metric["rank"] for metric in explanation["metrics"]] == [1, 2, 3, 4, 5]
+    assert sum(metric["contribution_percent"] for metric in explanation["metrics"]) == pytest.approx(100)
+
+
+def test_no_valid_metrics_returns_empty_explanation():
+    explanation = build_anomaly_explanation(
+        FEATURES,
+        [None, None, None, None, None, None],
+        [None, None, None, None, None, None],
+        [None, None, None, None, None, None],
+        SCALER,
+    )
+
+    assert explanation["metrics"] == []
+    assert explanation["contribution_percent_note"]
+
+
+def test_partial_metrics_percentages_use_only_available_valid_metrics():
+    explanation = build_anomaly_explanation(
+        FEATURES,
+        [50, None, 20, 3, 0, 80],
+        [0, 0, 0, 0, 0, 0],
+        [0, 0, 3, 0, 5, 100],
+        SCALER,
+    )
+    metrics = explanation["metrics"]
+
+    assert [metric["feature"] for metric in metrics] == [
+        "packet_loss",
+        "ping_ms",
+        "download_mbps",
+        "jitter_ms",
+    ]
+    assert sum(metric["contribution_percent"] for metric in metrics) == pytest.approx(100)
+    packet_loss = next(metric for metric in metrics if metric["feature"] == "packet_loss")
+    ping = next(metric for metric in metrics if metric["feature"] == "ping_ms")
+    assert packet_loss["contribution_percent"] == pytest.approx(25 / 34 * 100)
+    assert ping["contribution_percent"] == pytest.approx(9 / 34 * 100)
+    assert all(
+        metric["feature"] != "upload_mbps"
+        for metric in metrics
+    )
+
+
+def test_model_scaler_order_mismatch_returns_no_percentages():
+    mismatched_scaler = dict(SCALER)
+    mismatched_scaler["features"] = list(reversed(FEATURES))
+
+    explanation = build_anomaly_explanation(
+        FEATURES,
+        VALUES,
+        NORMALIZED,
+        NORMALIZED,
+        mismatched_scaler,
+    )
+
+    assert explanation["metrics"] == []
+    assert "not probabilities" in explanation["contribution_percent_note"]
 
 
 def test_anomalous_reconstruction_ranks_standardized_squared_errors():
@@ -231,6 +322,6 @@ def test_anomaly_api_preserves_existing_fields_and_adds_explanation(
         round(expected_error, 6)
     )
     assert body["explanation"]["normalization"] == (
-        "share_of_five_metric_squared_errors"
+        "relative_squared_reconstruction_error_shares"
     )
     assert len(body["explanation"]["metrics"]) == 5
