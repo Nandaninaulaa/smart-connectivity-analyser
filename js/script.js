@@ -257,6 +257,11 @@ function setupButtons() {
     $("historyRange")?.addEventListener("change", (event) => {
         loadNetworkHistory(event.target.value);
     });
+
+    $("historyMetric")?.addEventListener("change", (event) => {
+        applyHistoryMetricFilter(event.target.value);
+    });
+
     // Apply history filters.
     $("applyHistoryFilters")?.addEventListener(
         "click",
@@ -1090,6 +1095,54 @@ function initializeChart() {
                     tension: 0.35,
                     spanGaps: true,
                     yAxisID: "speedAxis"
+                },
+
+                {
+                    label: "Upload Speed (Mbps)",
+                    data: [],
+                    borderColor: "#3b82f6",
+                    backgroundColor: "rgba(59, 130, 246, 0.10)",
+                    borderWidth: 3,
+                    fill: false,
+                    tension: 0.35,
+                    spanGaps: true,
+                    yAxisID: "speedAxis"
+                },
+
+                {
+                    label: "Ping (ms)",
+                    data: [],
+                    borderColor: "#f59e0b",
+                    backgroundColor: "rgba(245, 158, 11, 0.10)",
+                    borderWidth: 3,
+                    fill: false,
+                    tension: 0.35,
+                    spanGaps: true,
+                    yAxisID: "latencyAxis"
+                },
+
+                {
+                    label: "Jitter (ms)",
+                    data: [],
+                    borderColor: "#10b981",
+                    backgroundColor: "rgba(16, 185, 129, 0.10)",
+                    borderWidth: 3,
+                    fill: false,
+                    tension: 0.35,
+                    spanGaps: true,
+                    yAxisID: "latencyAxis"
+                },
+
+                {
+                    label: "Packet Loss (%)",
+                    data: [],
+                    borderColor: "#ef4444",
+                    backgroundColor: "rgba(239, 68, 68, 0.10)",
+                    borderWidth: 3,
+                    fill: false,
+                    tension: 0.35,
+                    spanGaps: true,
+                    yAxisID: "scoreAxis"
                 }
             ]
         },
@@ -1123,7 +1176,7 @@ function initializeChart() {
 
                     title: {
                         display: true,
-                        text: "Connectivity Score"
+                        text: "Score / Loss (%)"
                     }
                 },
 
@@ -1134,7 +1187,22 @@ function initializeChart() {
 
                     title: {
                         display: true,
-                        text: "Download Mbps"
+                        text: "Speed (Mbps)"
+                    },
+
+                    grid: {
+                        drawOnChartArea: false
+                    }
+                },
+
+                latencyAxis: {
+                    type: "linear",
+                    position: "right",
+                    beginAtZero: true,
+
+                    title: {
+                        display: false,
+                        text: "Latency (ms)"
                     },
 
                     grid: {
@@ -1146,6 +1214,31 @@ function initializeChart() {
     });
 
     console.log("Chart.js initialized.");
+}
+
+function applyHistoryMetricFilter(selectedMetric = "all") {
+    if (!networkChart) return;
+
+    const metricDatasetMap = {
+        score: [0],
+        download: [1],
+        upload: [2],
+        ping: [3],
+        jitter: [4],
+        packet_loss: [5]
+    };
+
+    const targetIndices = metricDatasetMap[selectedMetric];
+
+    networkChart.data.datasets.forEach((dataset, idx) => {
+        if (selectedMetric === "all") {
+            dataset.hidden = false;
+        } else {
+            dataset.hidden = !targetIndices?.includes(idx);
+        }
+    });
+
+    networkChart.update();
 }
 
 /* =========================================================
@@ -1572,7 +1665,24 @@ function updateHistoryChart(history = sessionTests, range = null) {
     networkChart.data.datasets[1].data =
         filtered.map((item) => item.download_mbps);
 
-    networkChart.update();
+    networkChart.data.datasets[2].data =
+        filtered.map((item) => item.upload_mbps);
+
+    networkChart.data.datasets[3].data =
+        filtered.map((item) => item.ping ?? item.ping_ms);
+
+    networkChart.data.datasets[4].data =
+        filtered.map((item) => item.jitter ?? item.jitter_ms);
+
+    networkChart.data.datasets[5].data =
+        filtered.map((item) => item.packet_loss);
+
+    const activeMetric = $("historyMetric")?.value || "all";
+    if (activeMetric !== "all") {
+        applyHistoryMetricFilter(activeMetric);
+    } else {
+        networkChart.update();
+    }
 
     updateChartDescription(filtered);
 }
@@ -1608,6 +1718,30 @@ function updateChartDescription(items) {
     if (isValidMetric(latest.download_mbps)) {
         parts.push(
             `Latest download speed: ${Number(latest.download_mbps).toFixed(1)} Mbps.`
+        );
+    }
+
+    if (isValidMetric(latest.upload_mbps)) {
+        parts.push(
+            `Latest upload speed: ${Number(latest.upload_mbps).toFixed(1)} Mbps.`
+        );
+    }
+
+    if (isValidMetric(latest.ping ?? latest.ping_ms)) {
+        parts.push(
+            `Latest ping: ${Math.round(Number(latest.ping ?? latest.ping_ms))} ms.`
+        );
+    }
+
+    if (isValidMetric(latest.jitter ?? latest.jitter_ms)) {
+        parts.push(
+            `Latest jitter: ${Math.round(Number(latest.jitter ?? latest.jitter_ms))} ms.`
+        );
+    }
+
+    if (isValidMetric(latest.packet_loss)) {
+        parts.push(
+            `Latest packet loss: ${Number(latest.packet_loss).toFixed(1)}%.`
         );
     }
 
@@ -2841,6 +2975,12 @@ if (typeof window !== "undefined") {
     window.loadNetworkHistory =
         loadNetworkHistory;
 
+    window.applyHistoryMetricFilter =
+        applyHistoryMetricFilter;
+
+    window.normalizeHistoryItem =
+        normalizeHistoryItem;
+
     window.METRIC_UNITS = METRIC_UNITS;
 
     window.resolveNetworkType =
@@ -2872,6 +3012,8 @@ if (typeof module !== "undefined" && module.exports) {
         handleConnectivityTransition,
         formatAnomalyMetric,
         loadNetworkHistory,
+        normalizeHistoryItem,
+        applyHistoryMetricFilter,
         smartConnectivity,
         resolveNetworkType,
         detectNetworkType

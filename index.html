@@ -467,6 +467,17 @@
           <option value="all">All History</option>
         </select>
 
+        <label for="historyMetric" class="sr-only">Metric graph</label>
+        <select id="historyMetric" class="control-btn">
+          <option value="all">All Metrics</option>
+          <option value="score">Connectivity Score</option>
+          <option value="download">Download Speed</option>
+          <option value="upload">Upload Speed</option>
+          <option value="ping">Ping</option>
+          <option value="jitter">Jitter</option>
+          <option value="packet_loss">Packet Loss</option>
+        </select>
+
         <button id="exportCSV" type="button" class="control-btn">
           <i class="fa-solid fa-file-csv text-violet-600" aria-hidden="true"></i>
           Export CSV
