@@ -385,3 +385,48 @@ def test_supported_range_values_are_accepted(client, range_value):
     response = client.get(f"/api/network-history?range={range_value}")
 
     assert response.status_code == 200
+
+
+def test_network_history_returns_all_expected_metrics_for_graphs(client):
+    test_payload = {
+        "timestamp": "2026-11-20T10:00:00.000Z",
+        "download_mbps": 75.5,
+        "upload_mbps": 22.3,
+        "ping_ms": 14.2,
+        "jitter_ms": 1.8,
+        "packet_loss": 0.0,
+        "network_type": "Ethernet",
+        "connectivity_score": 96.0,
+        "latitude": 37.7749,
+        "longitude": -122.4194,
+    }
+    post_res = post_test(client, test_payload)
+    assert post_res.status_code == 200
+
+    response = client.get("/api/network-history?range=all")
+    assert response.status_code == 200
+
+    records = response.json()
+    assert len(records) >= 1
+
+    target = next(
+        (r for r in records if r["timestamp"] == "2026-11-20T10:00:00.000Z"),
+        None,
+    )
+    assert target is not None
+    assert target["download_mbps"] == 75.5
+    assert target["upload_mbps"] == 22.3
+    assert target["ping_ms"] == 14.2
+    assert target["jitter_ms"] == 1.8
+    assert target["packet_loss"] == 0.0
+    assert target["connectivity_score"] == 96.0
+
+
+def test_network_history_empty_database_returns_empty_list(client):
+    # Clear history first
+    delete_res = client.delete("/api/network-history")
+    assert delete_res.status_code == 200
+
+    response = client.get("/api/network-history?range=all")
+    assert response.status_code == 200
+    assert response.json() == []

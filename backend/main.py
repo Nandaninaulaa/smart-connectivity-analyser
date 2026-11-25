@@ -1242,7 +1242,13 @@ def get_network_history(
             detail="min_score must be less than or equal to max_score",
         )
 
-    connection = get_connection()
+    try:
+        connection = get_connection()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to connect to database: {exc}",
+        )
 
     try:
         cursor = connection.cursor()
@@ -1258,7 +1264,6 @@ def get_network_history(
                 since = datetime.now() - duration
                 conditions.append("timestamp >= ?")
                 parameters.append(since.isoformat())
-
 
         else:
             if start_date is not None:
@@ -1307,6 +1312,11 @@ def get_network_history(
 
         return [dict(row) for row in rows]
 
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database query error: {exc}",
+        )
     finally:
         connection.close()
 
