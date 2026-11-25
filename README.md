@@ -213,6 +213,7 @@ Make sure the backend is running before using frontend features that require API
 | GET | `/api/health` | Check backend health |
 | GET | `/api/ping` | Check basic API connectivity |
 | GET | `/api/network-quality` | Measure network quality using the backend ping test |
+| GET | `/api/dns-check` | Check whether the backend server can resolve a fixed hostname |
 | POST | `/api/network-test` | Submit/save a network test record |
 | GET | `/api/network-history` | Retrieve historical network records |
 | DELETE | `/api/network-history` | Delete saved network history |
@@ -222,6 +223,8 @@ Make sure the backend is running before using frontend features that require API
 | GET | `/api/ai/analyze` | Request combined AI analysis |
 
 For request schemas and interactive endpoint testing, open `/docs` while the local backend is running.
+
+`GET /api/dns-check` reports whether the backend server can resolve a fixed public hostname and the lookup duration when available. The dashboard shows success, timeout, and resolver failure states alongside the network measurements. This diagnostic describes the backend host's resolver; it does not test the browser device's DNS settings.
 
 `POST /api/network-test` validates its input and returns `422` with details for invalid requests:
 
@@ -410,3 +413,5 @@ Check whether a `LICENSE` file exists in the repository before reusing or redist
 <p align="center">
   🚀 <a href="https://smart-connectivity-analyser.onrender.com/">Try the Live Application</a>
 </p>
+
+

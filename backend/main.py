@@ -32,6 +32,8 @@ import re
 import statistics
 from datetime import date, datetime, timedelta
 
+from backend.dns_check import check_dns
+
 # ============================================================
 # AI MODEL IMPORTS
 # ============================================================
@@ -562,6 +564,12 @@ def health():
 
 # ============================================================
 
+
+
+@app.get("/api/dns-check")
+def dns_check():
+    # DNS failure is a measurement result, not a failure of the API itself.
+    return check_dns()
 
 
 @app.get("/api/ping")
@@ -1578,3 +1586,4 @@ if __name__ == "__main__":
         reload=True
 
     )
+

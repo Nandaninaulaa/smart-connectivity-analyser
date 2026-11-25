@@ -160,3 +160,5 @@ def test_endpoint_returns_503_when_ping_cannot_run(client, monkeypatch):
 
     assert response.status_code == 503
     assert "Operation not permitted" in response.json()["detail"]
+
+
