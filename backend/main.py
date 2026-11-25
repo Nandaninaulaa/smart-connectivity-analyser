@@ -20,6 +20,7 @@ from pydantic import (
 from pathlib import Path
 
 import sqlite3
+from contextlib import closing
 import json
 import math
 import sys
@@ -554,6 +555,60 @@ def health():
 
 
 
+
+
+# ============================================================
+# LIVENESS AND READINESS
+# ============================================================
+# /api/health/live only reports that the API process is responding.
+# /api/health/ready checks that the required SQLite history database is usable.
+# Neither endpoint runs network diagnostics, trains models, or loads AI models.
+
+
+def check_database_ready():
+    """Return True when the history database exists and has its table.
+
+    The file is opened read-only, so a probe can never create or change it,
+    and every failure is reduced to False so no internal detail can leak.
+    """
+    try:
+        # mode=ro prevents creating or changing the database; timeout=2
+        # bounds a locked-database wait; closing() always frees the connection.
+        with closing(
+            sqlite3.connect(f"{DB_PATH.as_uri()}?mode=ro", uri=True, timeout=2)
+        ) as connection:
+            # sqlite_master avoids reading or changing any user data.
+            row = connection.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'network_tests'"
+            ).fetchone()
+        return row is not None
+    except Exception:
+        # Every failure becomes False so no internal path or error text leaks.
+        return False
+
+
+@app.get("/api/health/live")
+def health_live():
+    return {"status": "alive"}
+
+
+@app.get("/api/health/ready")
+def health_ready():
+    database_ready = check_database_ready()
+
+    body = {
+        "status": "ready" if database_ready else "not_ready",
+        "checks": {
+            "database": "ok" if database_ready else "unavailable",
+        },
+        "optional": {
+            "ai_models": "available" if AI_MODELS_READY else "unavailable",
+        },
+    }
+
+    # A failed required dependency returns 503 with the same response schema.
+    return JSONResponse(status_code=200 if database_ready else 503, content=body)
 
 
 # ============================================================

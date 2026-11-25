@@ -211,6 +211,8 @@ Make sure the backend is running before using frontend features that require API
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/health` | Check backend health |
+| GET | `/api/health/live` | Check that the API process is responding |
+| GET | `/api/health/ready` | Check whether required dependencies are available |
 | GET | `/api/ping` | Check basic API connectivity |
 | GET | `/api/network-quality` | Measure network quality using the backend ping test |
 | POST | `/api/network-test` | Submit/save a network test record |
@@ -222,6 +224,8 @@ Make sure the backend is running before using frontend features that require API
 | GET | `/api/ai/analyze` | Request combined AI analysis |
 
 For request schemas and interactive endpoint testing, open `/docs` while the local backend is running.
+
+`/api/health/live` returns `200 {"status":"alive"}` while the API process is running. `/api/health/ready` returns `200` when the existing SQLite history database is usable and `503` when it is not; its response contains `checks.database` and `optional.ai_models`. AI model availability is reported but does not change the status code, and neither endpoint runs network tests or model training.
 
 `POST /api/network-test` validates its input and returns `422` with details for invalid requests:
 
