@@ -1810,14 +1810,16 @@ async function startNetworkTest() {
     updateDashboard();
 
     try {
-        const [backendResult, bandwidthResult] =
+        const [backendResult, bandwidthResult, protocolResult] =
             await Promise.all([
                 runBackendNetworkQualityTest(),
-                runCloudflareBandwidthTest()
+                runCloudflareBandwidthTest(),
+                runNetworkProtocolTest()
             ]);
 
         if (abortTestIfOffline()) return;
 
+        setText("protocolStatus", formatProtocolSummary(protocolResult));
         applyBackendMetrics(backendResult);
         applyBandwidthMetrics(bandwidthResult);
 
@@ -1947,6 +1949,51 @@ async function runBackendNetworkQualityTest() {
 
         return null;
     }
+}
+
+async function runNetworkProtocolTest() {
+    try {
+        const response = await fetch(
+            `${API_BASE}/network-protocols`,
+            { method: "GET", cache: "no-store" }
+        );
+
+        if (!response.ok) {
+            throw new Error(`Network protocol API returned ${response.status}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.warn("Network protocol endpoint unavailable:", error.message);
+        return null;
+    }
+}
+
+function formatProtocolSummary(result) {
+    if (!result || typeof result !== "object") {
+        return "Server IPv4/IPv6 status is unavailable.";
+    }
+
+    const describe = (protocol, check) => {
+        const label = protocol;
+        if (!check || typeof check !== "object") {
+            return `${label} status unknown`;
+        }
+        if (check.status === "available") {
+            return `${label} connected`;
+        }
+        if (check.status === "unsupported") {
+            return `${label} unsupported`;
+        }
+        const reason = {
+            dns_failure: "DNS lookup failed",
+            timeout: "connection timed out",
+            connection_failure: "connection failed"
+        }[check.reason] || "unavailable";
+        return `${label} ${reason}`;
+    };
+
+    return `Server: ${describe("IPv4", result.ipv4)} · ${describe("IPv6", result.ipv6)}`;
 }
 
 function applyBackendMetrics(data) {
@@ -3016,9 +3063,12 @@ if (typeof module !== "undefined" && module.exports) {
         applyHistoryMetricFilter,
         smartConnectivity,
         resolveNetworkType,
-        detectNetworkType
+        detectNetworkType,
+        formatProtocolSummary
     };
 }
 /* =========================================================
    END OF SCRIPT
    ========================================================= */
+
+

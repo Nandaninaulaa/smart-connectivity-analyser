@@ -41,6 +41,7 @@ if str(AI_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(AI_BACKEND_DIR))
 
 from anomaly_explanation import build_anomaly_explanation
+from protocol_diagnostics import detect_network_protocols
 
 try:
     import torch
@@ -1028,6 +1029,12 @@ def network_quality():
     }
 
 
+@app.get("/api/network-protocols")
+def network_protocols():
+    """Report independent IPv4/IPv6 connectivity without changing ping data."""
+    return detect_network_protocols()
+
+
 
 
 
@@ -1578,3 +1585,4 @@ if __name__ == "__main__":
         reload=True
 
     )
+

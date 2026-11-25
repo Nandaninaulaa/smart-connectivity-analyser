@@ -213,6 +213,7 @@ Make sure the backend is running before using frontend features that require API
 | GET | `/api/health` | Check backend health |
 | GET | `/api/ping` | Check basic API connectivity |
 | GET | `/api/network-quality` | Measure network quality using the backend ping test |
+| GET | `/api/network-protocols` | Check IPv4 and IPv6 connectivity independently |
 | POST | `/api/network-test` | Submit/save a network test record |
 | GET | `/api/network-history` | Retrieve historical network records |
 | DELETE | `/api/network-history` | Delete saved network history |
@@ -222,6 +223,8 @@ Make sure the backend is running before using frontend features that require API
 | GET | `/api/ai/analyze` | Request combined AI analysis |
 
 For request schemas and interactive endpoint testing, open `/docs` while the local backend is running.
+
+`GET /api/network-protocols` reports a top-level `connected` flag and independent `ipv4` and `ipv6` results for the backend server's outbound network. Each protocol has a `status` of `available`, `unavailable`, or `unsupported`; unavailable results use a safe `reason` such as `dns_failure`, `timeout`, or `connection_failure`. The check uses a fixed hostname and HTTPS port, and it does not change the existing `/api/network-quality` response. This is a reachability probe for the backend host; it does not verify every destination or measure the browser device's ISP route.
 
 `POST /api/network-test` validates its input and returns `422` with details for invalid requests:
 
@@ -410,3 +413,5 @@ Check whether a `LICENSE` file exists in the repository before reusing or redist
 <p align="center">
   🚀 <a href="https://smart-connectivity-analyser.onrender.com/">Try the Live Application</a>
 </p>
+
+
