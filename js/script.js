@@ -8,7 +8,7 @@ const API_BASE =
         ? window.API_BASE
         : "http://127.0.0.1:8000/api";
 
-const $ = (id) => document.getElementById(id);
+const $ = (id) => typeof document === "undefined" ? null : document.getElementById(id);
 
 let applicationInitialized = false;
 let testInProgress = false;
@@ -221,6 +221,7 @@ async function initializeApplication() {
     wasDeviceOffline = isDeviceOffline();
 
     setupButtons();
+    await loadDiagnosticProfiles();
     setupNetworkListeners();
     detectNetworkType();
     applyConnectivityStatusIndicator();
@@ -1844,9 +1845,9 @@ async function readApiError(response) {
     return `Request failed (${response.status}).`;
 }
 
-async function loadDiagnosticProfiles() {
+async function loadDiagnosticProfiles(fetchProfiles = fetch) {
     try {
-        const response = await fetch(`${API_BASE}/diagnostic-profiles`, { cache: "no-store" });
+        const response = await fetchProfiles(`${API_BASE}/diagnostic-profiles`, { cache: "no-store" });
         if (!response.ok) throw new Error(`status ${response.status}`);
         const data = await response.json();
         diagnosticProfiles = Array.isArray(data.profiles) ? data.profiles : [];
@@ -1859,10 +1860,53 @@ async function loadDiagnosticProfiles() {
         selectedProfileId = null;
     }
     renderProfileSelector();
+    return diagnosticProfiles;
 }
 
 function getSelectedProfile() {
     return diagnosticProfiles.find((p) => p.id === selectedProfileId) ?? null;
+}
+
+function selectDiagnosticProfile(profileId) {
+    selectedProfileId = diagnosticProfiles.some((profile) => profile.id === profileId)
+        ? profileId
+        : null;
+    renderProfileSelector();
+    return getSelectedProfile();
+}
+
+function renderProfileSelector() {
+    const container = $("profileSelector");
+    const note = $("profileNote");
+    if (!container || typeof document === "undefined") return;
+
+    container.replaceChildren();
+    const choices = [
+        { id: "", label: "Standard Test", description: "The original full network test." },
+        ...diagnosticProfiles
+    ];
+
+    choices.forEach((profile) => {
+        const label = document.createElement("label");
+        label.className = "profile-card";
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = "diagnosticProfile";
+        input.value = profile.id;
+        input.checked = (profile.id || null) === selectedProfileId;
+        input.addEventListener("change", () => {
+            selectedProfileId = input.value || null;
+        });
+        const title = document.createElement("span");
+        title.className = "profile-title";
+        title.textContent = profile.label;
+        const description = document.createElement("small");
+        description.className = "profile-desc";
+        description.textContent = profile.description || "";
+        label.append(input, title, description);
+        container.append(label);
+    });
+    if (note) note.hidden = diagnosticProfiles.length > 0;
 }
 
 /* Pure logic: no DOM. Builds per-check rows from THIS run only. */
@@ -1895,10 +1939,17 @@ function evaluateProfileResult(
         if (info.status === "ok") {
             const [key, unit] = CHECK_VALUES[check];
             const value = backendResult[key];
+            if (!isValidMetric(value)) {
+                return {
+                    check,
+                    status: "failed",
+                    detail: "The backend marked this check successful without a valid measurement."
+                };
+            }
             return {
                 check,
                 status: "ok",
-                detail: isValidMetric(value) ? `${Number(value).toFixed(2)} ${unit}` : ""
+                detail: `${Number(value).toFixed(2)} ${unit}`
             };
         }
 
@@ -1920,50 +1971,6 @@ function evaluateProfileResult(
     };
 }
 
-function renderProfileResult(profile, backendResult, bandwidthResult) {
-    if (!profile) return null;
-
-    const evaluation = evaluateProfileResult(
-        profile,
-        backendResult,
-        bandwidthResult,
-        lastBackendError
-    );
-
-    showProfilePanel(evaluation.state, (panel) => {
-        const heading = document.createElement("strong");
-        heading.textContent = profile.label;
-
-        const when = document.createElement("span");
-        when.className = "profile-time";
-        when.textContent = ` Measured at ${new Date(evaluation.measuredAt).toLocaleTimeString()}`;
-
-        const list = document.createElement("ul");
-
-        evaluation.rows.forEach((row) => {
-            const item = document.createElement("li");
-
-            const badge = document.createElement("span");
-            badge.className = "check-badge";
-            badge.dataset.status = row.status;
-            badge.textContent = row.status === "ok" ? "OK" : "Failed";
-
-            const name = document.createElement("span");
-            name.textContent = CHECK_LABELS[row.check] ?? row.check;
-
-            const detail = document.createElement("span");
-            detail.className = "profile-desc";
-            detail.textContent = row.detail;
-
-            item.append(badge, name, detail);
-            list.append(item);
-        });
-
-        panel.append(heading, when, list);
-    });
-
-    return { state: evaluation.state, failed: evaluation.failed };
-}
 function setProfileSelectorDisabled(disabled) {
     const container = $("profileSelector");
     if (container) container.disabled = disabled;
@@ -1996,61 +2003,20 @@ function renderProfileResultStopped() {
     });
 }
 
-/* Builds per-check results from THIS run only. Returns
-   { state: "success" | "partial" | "error", failed: [labels] }. */
 function renderProfileResult(profile, backendResult, bandwidthResult) {
     if (!profile) return null;
+    const evaluation = evaluateProfileResult(profile, backendResult, bandwidthResult, lastBackendError);
 
-    const backendChecks = backendResult?.checks ?? {};
-
-    const rows = profile.checks.map((check) => {
-        if (check === "download" || check === "upload") {
-            const value = bandwidthResult?.[check];
-            return isValidMetric(value)
-                ? { check, status: "ok", detail: `${Number(value).toFixed(2)} Mbps` }
-                : { check, status: "failed", detail: "Speed test unavailable or timed out." };
-        }
-
-        const info = backendChecks[check];
-        if (!backendResult || !info) {
-            return {
-                check,
-                status: "failed",
-                detail: lastBackendError || "The backend did not return this check."
-            };
-        }
-
-        if (info.status === "ok") {
-            const [key, unit] = CHECK_VALUES[check];
-            const value = backendResult[key];
-            return {
-                check,
-                status: "ok",
-                detail: isValidMetric(value) ? `${Number(value).toFixed(2)} ${unit}` : ""
-            };
-        }
-
-        return { check, status: "failed", detail: info.reason || "Check failed." };
-    });
-
-    const failed = rows.filter((row) => row.status === "failed");
-    const state =
-        failed.length === 0 ? "success"
-        : failed.length === rows.length ? "error"
-        : "partial";
-
-    const measuredAt = backendResult?.measured_at ?? new Date().toISOString();
-
-    showProfilePanel(state, (panel) => {
+    showProfilePanel(evaluation.state, (panel) => {
         const heading = document.createElement("strong");
         heading.textContent = profile.label;
 
         const when = document.createElement("span");
         when.className = "profile-time";
-        when.textContent = ` Measured at ${new Date(measuredAt).toLocaleTimeString()}`;
+        when.textContent = ` Measured at ${new Date(evaluation.measuredAt).toLocaleTimeString()}`;
 
         const list = document.createElement("ul");
-        rows.forEach((row) => {
+        evaluation.rows.forEach((row) => {
             const item = document.createElement("li");
 
             const badge = document.createElement("span");
@@ -2072,10 +2038,7 @@ function renderProfileResult(profile, backendResult, bandwidthResult) {
         panel.append(heading, when, list);
     });
 
-    return {
-        state,
-        failed: failed.map((row) => CHECK_LABELS[row.check] ?? row.check)
-    };
+    return { state: evaluation.state, failed: evaluation.failed };
 }
 
 function describeOutcome(profile, outcome) {
@@ -3179,6 +3142,9 @@ if (typeof module !== "undefined" && module.exports) {
         formatNetworkMetric,
         validateHistoryFilterValues,
         evaluateProfileResult,
+        loadDiagnosticProfiles,
+        selectDiagnosticProfile,
+        getSelectedProfile,
         describeOutcome,
         calculateConnectivityScore: sharedCalculateConnectivityScore,
         getConnectivityStatus,
@@ -3200,3 +3166,4 @@ if (typeof module !== "undefined" && module.exports) {
 /* =========================================================
    END OF SCRIPT
    ========================================================= */
+
