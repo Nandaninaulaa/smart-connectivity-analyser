@@ -7,6 +7,7 @@ config, so the frontend never hardcodes profile definitions.
 
 from datetime import datetime, timezone
 from enum import Enum
+import math
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -144,9 +145,22 @@ def build_profile_result(profile, ping_result, measured_at=None):
         )
 
     if Check.PACKET_LOSS in selected:
-        result["packet_loss"] = ping_result.get("packet_loss")
-        checks["packet_loss"] = {"status": "ok"}
-
+        packet_loss = ping_result.get("packet_loss")
+        ok = (
+            isinstance(packet_loss, (int, float))
+            and not isinstance(packet_loss, bool)
+            and math.isfinite(packet_loss)
+            and 0 <= packet_loss <= 100
+        )
+        result["packet_loss"] = packet_loss if ok else None
+        checks["packet_loss"] = (
+            {"status": "ok"}
+            if ok
+            else {
+                "status": "failed",
+                "reason": "Packet-loss measurement is missing or invalid.",
+            }
+        )
     for check in (Check.DOWNLOAD, Check.UPLOAD):
         if check in selected:
             checks[check.value] = {

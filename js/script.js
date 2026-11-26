@@ -1967,7 +1967,7 @@ function evaluateProfileResult(
         state,
         rows,
         failed: failed.map((row) => CHECK_LABELS[row.check] ?? row.check),
-        measuredAt: backendResult?.measured_at ?? new Date().toISOString()
+        measuredAt: backendResult?.measured_at ?? null
     };
 }
 
@@ -2011,9 +2011,13 @@ function renderProfileResult(profile, backendResult, bandwidthResult) {
         const heading = document.createElement("strong");
         heading.textContent = profile.label;
 
-        const when = document.createElement("span");
-        when.className = "profile-time";
-        when.textContent = ` Measured at ${new Date(evaluation.measuredAt).toLocaleTimeString()}`;
+        const when = evaluation.measuredAt
+            ? document.createElement("span")
+            : null;
+        if (when) {
+            when.className = "profile-time";
+            when.textContent = ` Measured at ${new Date(evaluation.measuredAt).toLocaleTimeString()}`;
+        }
 
         const list = document.createElement("ul");
         evaluation.rows.forEach((row) => {
@@ -2035,7 +2039,7 @@ function renderProfileResult(profile, backendResult, bandwidthResult) {
             list.append(item);
         });
 
-        panel.append(heading, when, list);
+        panel.append(heading, ...(when ? [when] : []), list);
     });
 
     return { state: evaluation.state, failed: evaluation.failed };

@@ -90,6 +90,16 @@ describe("Quick Check", () => {
         assert.equal(result.rows.find((row) => row.check === "packet_loss").status, "ok");
         assert.equal(result.rows.find((row) => row.check === "packet_loss").detail, "0.00 %");
     });
+
+    test("does not invent a measurement timestamp when the backend omits it", () => {
+        const result = evaluateProfileResult(
+            QUICK,
+            backend({ measured_at: undefined }),
+            null
+        );
+
+        assert.equal(result.measuredAt, null);
+    });
 });
 
 describe("Profile loading and selection", () => {

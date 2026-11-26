@@ -105,6 +105,31 @@ def test_unreachable_network_is_failed_not_fake_zero():
     assert result["checks"]["ping"]["status"] == "failed"
 
 
+def test_packet_loss_none_is_failed():
+    ping = dict(GOOD_PING, packet_loss=None)
+    result = build_profile_result(PROFILES["quick"], ping)
+
+    assert result["packet_loss"] is None
+    assert result["checks"]["packet_loss"]["status"] == "failed"
+    assert "missing or invalid" in result["checks"]["packet_loss"]["reason"]
+
+
+def test_missing_packet_loss_is_failed():
+    ping = dict(GOOD_PING)
+    del ping["packet_loss"]
+    result = build_profile_result(PROFILES["quick"], ping)
+
+    assert result["packet_loss"] is None
+    assert result["checks"]["packet_loss"]["status"] == "failed"
+
+
+def test_packet_loss_zero_is_a_valid_measurement():
+    result = build_profile_result(PROFILES["quick"], dict(GOOD_PING, packet_loss=0))
+
+    assert result["packet_loss"] == 0
+    assert result["checks"]["packet_loss"]["status"] == "ok"
+
+
 def test_profile_config_validation_rejects_bad_config():
     base = dict(id="x", label="X", description="d", estimated_seconds=1)
     with pytest.raises(ValidationError):  # jitter with 1 packet
