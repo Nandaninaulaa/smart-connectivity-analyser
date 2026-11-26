@@ -3,6 +3,7 @@
 import errno
 import socket
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from threading import BoundedSemaphore
 
 
 CHECK_HOST = "one.one.one.one"
@@ -13,15 +14,19 @@ _RESOLVER_POOL = ThreadPoolExecutor(
     max_workers=2,
     thread_name_prefix="protocol-dns",
 )
+# getaddrinfo() cannot be cancelled once running. Admit only as many resolver
+# calls as there are workers, and keep each slot occupied until that call ends.
+_RESOLVER_SLOTS = BoundedSemaphore(2)
 
 
 def _unavailable(reason):
     return {"status": "unavailable", "reason": reason}
 
 
-def _check_family(family):
-    if family == socket.AF_INET6 and not socket.has_ipv6:
-        return {"status": "unsupported", "reason": "not_supported"}
+def _resolve_addresses(family):
+    resolver_slots = _RESOLVER_SLOTS
+    if not resolver_slots.acquire(blocking=False):
+        return None, "timeout"
 
     try:
         resolution = _RESOLVER_POOL.submit(
@@ -31,11 +36,34 @@ def _check_family(family):
             family=family,
             type=socket.SOCK_STREAM,
         )
-        addresses = resolution.result(timeout=RESOLVER_TIMEOUT_SECONDS)
+    except Exception:
+        resolver_slots.release()
+        raise
+
+    # A timed-out caller must not free capacity while getaddrinfo is still
+    # running; the callback releases the slot only when the worker really ends.
+    resolution.add_done_callback(
+        lambda _future, slots=resolver_slots: slots.release()
+    )
+    try:
+        return resolution.result(timeout=RESOLVER_TIMEOUT_SECONDS), None
     except TimeoutError:
-        return _unavailable("timeout")
+        return None, "timeout"
     except socket.gaierror:
+        return None, "dns_failure"
+
+
+def _check_family(family):
+    if family == socket.AF_INET6 and not socket.has_ipv6:
+        return {"status": "unsupported", "reason": "not_supported"}
+
+    try:
+        addresses, error = _resolve_addresses(family)
+    except OSError:
         return _unavailable("dns_failure")
+
+    if error:
+        return _unavailable(error)
 
     if not addresses:
         return _unavailable("dns_failure")

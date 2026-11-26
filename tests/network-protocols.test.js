@@ -45,3 +45,22 @@ test("distinguishes DNS failures and missing diagnostic data", () => {
     assert.equal(formatProtocolSummary(null), "Server IPv4/IPv6 status is unavailable.");
 });
 
+
+
+test("aborts a stalled network protocol request", async () => {
+    const originalFetch = global.fetch;
+    let observedAbort = false;
+    global.fetch = (_url, options) => new Promise((_resolve, reject) => {
+        options.signal.addEventListener("abort", () => {
+            observedAbort = true;
+            reject(new Error("request aborted"));
+        }, { once: true });
+    });
+
+    try {
+        assert.equal(await runNetworkProtocolTest(), null);
+        assert.equal(observedAbort, true);
+    } finally {
+        global.fetch = originalFetch;
+    }
+});

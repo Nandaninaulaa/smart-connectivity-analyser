@@ -2237,10 +2237,16 @@ async function runBackendNetworkQualityTest(profileId = null) {
 }
 
 async function runNetworkProtocolTest() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     try {
         const response = await fetch(
             `${API_BASE}/network-protocols`,
-            { method: "GET", cache: "no-store" }
+            {
+                method: "GET",
+                cache: "no-store",
+                signal: controller.signal
+            }
         );
 
         if (!response.ok) {
@@ -2251,6 +2257,8 @@ async function runNetworkProtocolTest() {
     } catch (error) {
         console.warn("Network protocol endpoint unavailable:", error.message);
         return null;
+    } finally {
+        clearTimeout(timeout);
     }
 }
 
@@ -3354,7 +3362,8 @@ if (typeof module !== "undefined" && module.exports) {
         smartConnectivity,
         resolveNetworkType,
         detectNetworkType,
-        formatProtocolSummary
+        formatProtocolSummary,
+        runNetworkProtocolTest
     };
 }
 /* =========================================================

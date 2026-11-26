@@ -1,6 +1,8 @@
 import errno
 import socket
 import time
+from concurrent.futures import ThreadPoolExecutor
+from threading import BoundedSemaphore, Event
 
 from backend import protocol_diagnostics as diagnostics
 
@@ -114,6 +116,34 @@ def test_dns_timeout_is_bounded_and_reported_as_timeout(monkeypatch):
     assert result["connected"] is False
     assert result["ipv4"]["reason"] == "timeout"
     assert result["ipv6"]["reason"] == "timeout"
+
+
+
+def test_timed_out_resolvers_do_not_admit_unbounded_work(monkeypatch):
+    started = Event()
+    release = Event()
+    isolated_pool = ThreadPoolExecutor(max_workers=2)
+    monkeypatch.setattr(diagnostics, "_RESOLVER_POOL", isolated_pool)
+    monkeypatch.setattr(diagnostics, "_RESOLVER_SLOTS", BoundedSemaphore(2))
+
+    def stuck_resolver(*args, **kwargs):
+        started.set()
+        release.wait(timeout=2)
+        return []
+
+    monkeypatch.setattr(diagnostics, "RESOLVER_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(socket, "getaddrinfo", stuck_resolver)
+
+    with ThreadPoolExecutor(max_workers=1) as callers:
+        first = callers.submit(diagnostics._resolve_addresses, socket.AF_INET)
+        try:
+            assert started.wait(timeout=1)
+            assert first.result(timeout=1) == (None, "timeout")
+            assert diagnostics._resolve_addresses(socket.AF_INET6) == (None, "timeout")
+            assert diagnostics._resolve_addresses(socket.AF_INET) == (None, "timeout")
+        finally:
+            release.set()
+            isolated_pool.shutdown(wait=True)
 
 
 def test_reports_socket_family_unsupported(monkeypatch):
