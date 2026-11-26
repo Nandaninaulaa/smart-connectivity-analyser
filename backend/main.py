@@ -25,7 +25,7 @@ from backend.diagnostic_profiles import (
     list_profiles,
 )
 from pathlib import Path
-from protocol_diagnostics import detect_network_protocols
+from backend.protocol_diagnostics import detect_network_protocols
 
 import sqlite3
 from contextlib import closing
