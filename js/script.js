@@ -1985,6 +1985,7 @@ function formatDnsStatus(result) {
     const category = {
         not_found: "hostname not found",
         resolver_unavailable: "resolver unavailable",
+        capacity_exhausted: "diagnostic capacity reached",
         timeout: "lookup timed out",
         unknown: "lookup failed"
     }[result.failure_category] || "lookup failed";

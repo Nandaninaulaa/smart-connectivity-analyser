@@ -88,7 +88,7 @@ def test_repeated_timeouts_cannot_grow_resolver_workers():
 
     assert first["failure_category"] == "timeout"
     assert second["failure_category"] == "timeout"
-    assert third["failure_category"] == "resolver_unavailable"
+    assert third["failure_category"] == "capacity_exhausted"
     with lock:
         assert started <= 2
 

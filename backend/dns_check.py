@@ -64,7 +64,7 @@ def check_dns(
     # getaddrinfo cannot be cancelled. A shared fixed-size pool and a
     # matching semaphore prevent timed-out workers accumulating per request.
     if not _DNS_SLOTS.acquire(blocking=False):
-        result["failure_category"] = "resolver_unavailable"
+        result["failure_category"] = "capacity_exhausted"
         return result
 
     started = time.perf_counter()

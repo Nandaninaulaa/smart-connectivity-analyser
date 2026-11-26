@@ -37,6 +37,14 @@ test("distinguishes DNS failure categories", () => {
         }),
         "Server DNS: resolver unavailable in 3 ms."
     );
+    assert.equal(
+        formatDnsStatus({
+            status: "failed",
+            failure_category: "capacity_exhausted",
+            duration_ms: null
+        }),
+        "Server DNS: diagnostic capacity reached."
+    );
 });
 
 test("handles an unavailable API result", () => {
