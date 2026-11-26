@@ -27,8 +27,9 @@ from backend.diagnostic_profiles import (
 from pathlib import Path
 
 import sqlite3
-from contextlib import closing
+from contextlib import closing, contextmanager
 import json
+import logging
 import math
 import sys
 
@@ -301,6 +302,33 @@ def get_connection():
 
 
     return connection
+
+
+logger = logging.getLogger(__name__)
+
+HISTORY_READ_ERROR = "Could not load network history. Please try again later."
+HISTORY_SAVE_ERROR = "Could not save the network test. Please try again later."
+HISTORY_DELETE_ERROR = "Could not delete network history. Please try again later."
+
+
+@contextmanager
+def history_database(error_message):
+    """Open a history database connection and always close it.
+
+    SQLite errors are logged with full details on the server and returned to
+    the client as a 500 response with a fixed, user-friendly message, so
+    internal error text and file paths are not exposed.
+    """
+    connection = None
+    try:
+        connection = get_connection()
+        yield connection
+    except sqlite3.Error:
+        logger.exception("Network history database error: %s", error_message)
+        raise HTTPException(status_code=500, detail=error_message)
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 
@@ -857,109 +885,39 @@ def save_network_test(data: NetworkTest):
 
 
 
-    connection = get_connection()
-
-
-
-    cursor = connection.cursor()
-
-
-
-
-
-    cursor.execute(
-
-        """
-
-        INSERT INTO network_tests (
-
-            timestamp,
-
-            download_mbps,
-
-            upload_mbps,
-
-            ping_ms,
-
-            jitter_ms,
-
-            packet_loss,
-
-            network_type,
-
-            connectivity_score,
-
-            latitude,
-
-            longitude
-
+    with history_database(HISTORY_SAVE_ERROR) as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO network_tests (
+                timestamp,
+                download_mbps,
+                upload_mbps,
+                ping_ms,
+                jitter_ms,
+                packet_loss,
+                network_type,
+                connectivity_score,
+                latitude,
+                longitude
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                timestamp,
+                data.download_mbps,
+                data.upload_mbps,
+                data.ping_ms,
+                data.jitter_ms,
+                data.packet_loss,
+                data.network_type,
+                data.connectivity_score,
+                data.latitude,
+                data.longitude
+            )
         )
-
-
-
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-
-        """,
-
-
-
-        (
-
-            timestamp,
-
-
-
-            data.download_mbps,
-
-
-
-            data.upload_mbps,
-
-
-
-            data.ping_ms,
-
-
-
-            data.jitter_ms,
-
-
-
-            data.packet_loss,
-
-
-
-            data.network_type,
-
-
-
-            data.connectivity_score,
-
-
-
-            data.latitude,
-
-
-
-            data.longitude
-
-        )
-
-    )
-
-
-
-
-
-    connection.commit()
-
-
-
-    test_id = cursor.lastrowid
-
-
-
-    connection.close()
+        connection.commit()
+        test_id = cursor.lastrowid
 
 
 
@@ -1056,15 +1014,7 @@ def get_network_history(
             detail="min_score must be less than or equal to max_score",
         )
 
-    try:
-        connection = get_connection()
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to connect to database: {exc}",
-        )
-
-    try:
+    with history_database(HISTORY_READ_ERROR) as connection:
         cursor = connection.cursor()
 
         conditions = []
@@ -1158,14 +1108,6 @@ def get_network_history(
         # Keep the original list response for existing callers.
         cursor.execute(query + " ORDER BY timestamp ASC, id ASC", parameters)
         return [dict(row) for row in cursor.fetchall()]
-
-    except sqlite3.Error as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Database query error: {exc}",
-        )
-    finally:
-        connection.close()
 
 
 
@@ -1360,27 +1302,9 @@ def delete_network_history():
 
 
 
-    connection = get_connection()
-
-
-
-    cursor = connection.cursor()
-
-
-
-    cursor.execute(
-
-        "DELETE FROM network_tests"
-
-    )
-
-
-
-    connection.commit()
-
-
-
-    connection.close()
+    with history_database(HISTORY_DELETE_ERROR) as connection:
+        connection.execute("DELETE FROM network_tests")
+        connection.commit()
 
 
 
