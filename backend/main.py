@@ -1004,6 +1004,9 @@ HISTORY_RANGE_WINDOWS = {
     "monthly": timedelta(days=365),
 }
 
+DEFAULT_NETWORK_HISTORY_PAGE_SIZE = 100
+MAX_NETWORK_HISTORY_PAGE_SIZE = 500
+
 
 @app.get("/api/network-history")
 def get_network_history(
@@ -1012,6 +1015,17 @@ def get_network_history(
     end_date: date | None = None,
     min_score: float | None = Query(default=None, ge=0, le=100),
     max_score: float | None = Query(default=None, ge=0, le=100),
+    limit: int | None = Query(
+        default=None,
+        ge=1,
+        le=MAX_NETWORK_HISTORY_PAGE_SIZE,
+        description="Maximum number of records to return (1-500).",
+    ),
+    offset: int | None = Query(
+        default=None,
+        ge=0,
+        description="Number of matching records to skip.",
+    ),
 ):
     if range != "all" and range not in HISTORY_RANGE_WINDOWS:
         supported = ", ".join(["all", *HISTORY_RANGE_WINDOWS])
@@ -1101,16 +1115,49 @@ def get_network_history(
             FROM network_tests
         """
 
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
+        where_clause = (
+            " WHERE " + " AND ".join(conditions)
+            if conditions
+            else ""
+        )
+        query += where_clause
 
-        query += " ORDER BY timestamp ASC"
+        if limit is not None or offset is not None:
+            page_limit = (
+                limit if limit is not None else DEFAULT_NETWORK_HISTORY_PAGE_SIZE
+            )
+            page_offset = offset if offset is not None else 0
 
-        cursor.execute(query, parameters)
+            # Count the filtered records before applying page bounds.
+            cursor.execute(
+                "SELECT COUNT(*) FROM network_tests" + where_clause,
+                parameters,
+            )
+            total = cursor.fetchone()[0]
 
-        rows = cursor.fetchall()
+            # id is a stable tie-breaker for rows with identical timestamps.
+            cursor.execute(
+                query + " ORDER BY timestamp ASC, id ASC LIMIT ? OFFSET ?",
+                parameters + [page_limit, page_offset],
+            )
+            records = [dict(row) for row in cursor.fetchall()]
+            next_offset = page_offset + len(records)
+            has_more = next_offset < total
 
-        return [dict(row) for row in rows]
+            return {
+                "data": records,
+                "pagination": {
+                    "limit": page_limit,
+                    "offset": page_offset,
+                    "total": total,
+                    "has_more": has_more,
+                    "next_offset": next_offset if has_more else None,
+                },
+            }
+
+        # Keep the original list response for existing callers.
+        cursor.execute(query + " ORDER BY timestamp ASC, id ASC", parameters)
+        return [dict(row) for row in cursor.fetchall()]
 
     except sqlite3.Error as exc:
         raise HTTPException(
