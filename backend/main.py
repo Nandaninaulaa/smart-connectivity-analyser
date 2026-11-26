@@ -16,7 +16,14 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-
+from fastapi import Query
+from backend.diagnostic_profiles import (
+    DEFAULT_PACKET_COUNT,
+    UnknownProfileError,
+    build_profile_result,
+    get_profile,
+    list_profiles,
+)
 from pathlib import Path
 
 import sqlite3
@@ -651,384 +658,122 @@ def build_ping_command(target, packet_count, timeout_seconds, system):
     ]
 
 
-# ============================================================
-
-# NETWORK QUALITY
-
-# ============================================================
-
-
-
-@app.get("/api/network-quality")
-
-def network_quality():
-
-
-
+def measure_ping(packet_count=DEFAULT_PACKET_COUNT):
+    """Run the ping measurement. Raises HTTPException if ping cannot run."""
     target = "1.1.1.1"
-
-
-
-    packet_count = 10
-
-
-
     timeout_seconds = 2
 
     command = build_ping_command(
-        target,
-        packet_count,
-        timeout_seconds,
-        platform.system(),
+        target, packet_count, timeout_seconds, platform.system()
     )
 
-
+    # 10 packets keeps the original 30 s limit; longer runs scale up.
+    subprocess_timeout = max(30, packet_count * 2 + 10)
 
     try:
-
-
-
         process = subprocess.run(
-
             command,
-
             capture_output=True,
-
             text=True,
-
-            timeout=30
-
+            timeout=subprocess_timeout,
         )
-
-
-
         output = process.stdout
-
-
-
     except FileNotFoundError:
         raise HTTPException(
             status_code=503,
             detail="The ping command is not available on this server.",
         )
-
     except subprocess.TimeoutExpired:
-
-
-
-        raise HTTPException(
-
-            status_code=504,
-
-            detail="Ping measurement timed out."
-
-        )
-
-
-
+        raise HTTPException(status_code=504, detail="Ping measurement timed out.")
     except Exception as error:
-
-
-
         raise HTTPException(
-
-            status_code=500,
-
-            detail=f"Ping measurement failed: {error}"
-
+            status_code=500, detail=f"Ping measurement failed: {error}"
         )
-
-
-
-
-    # ========================================================
-    # PARSE PING TIMES AND PACKET LOSS
-    # ========================================================
 
     ping_times, packet_loss = parse_ping_output(output)
 
-    # No replies and no loss summary means ping failed to run
-    # (for example, no permission to send pings). That is not
-    # the same as a real 100% packet loss.
+    # No replies and no loss summary means ping failed to run, which is
+    # not the same as a real 100% packet loss.
     if not ping_times and packet_loss is None:
         reason = process.stderr.strip() or "ping produced no output"
         raise HTTPException(
-            status_code=503,
-            detail=f"Ping measurement failed: {reason}",
+            status_code=503, detail=f"Ping measurement failed: {reason}"
         )
 
-
-    # If ping printed no loss summary, estimate it from
-    # how many replies were received.
     if packet_loss is None:
-        packet_loss = (
-            (packet_count - len(ping_times))
-            / packet_count
-        ) * 100
-
-
-    # ========================================================
-    # NO RESPONSE
-    # ========================================================
-
-
+        packet_loss = ((packet_count - len(ping_times)) / packet_count) * 100
 
     if len(ping_times) == 0:
-
-
-
         return {
-
             "target": target,
-
             "packets_sent": packet_count,
-
             "packets_received": 0,
-
             "packet_loss": 100.0,
-
             "ping_ms": None,
-
             "min_ping_ms": None,
-
             "max_ping_ms": None,
-
             "jitter_ms": None,
-
-            "status": "unreachable"
-
+            "status": "unreachable",
         }
 
+    average_ping = statistics.mean(ping_times)
 
-
-
-
-    # ========================================================
-
-    # PING STATISTICS
-
-    # ========================================================
-
-
-
-    average_ping = statistics.mean(
-
-        ping_times
-
-    )
-
-
-
-    minimum_ping = min(
-
-        ping_times
-
-    )
-
-
-
-    maximum_ping = max(
-
-        ping_times
-
-    )
-
-
-
-
-
-    # ========================================================
-
-    # JITTER
-
-    #
-
-    # Mean absolute difference between consecutive
-
-    # successful ping measurements.
-
-    # ========================================================
-
-
-
+    # Jitter: mean absolute difference between consecutive replies.
     if len(ping_times) >= 2:
-
-
-
-        differences = []
-
-
-
-        for i in range(
-
-            1,
-
-            len(ping_times)
-
-        ):
-
-
-
-            difference = abs(
-
-                ping_times[i] -
-
-                ping_times[i - 1]
-
-            )
-
-
-
-            differences.append(
-
-                difference
-
-            )
-
-
-
-
-
         jitter = statistics.mean(
-
-            differences
-
+            abs(ping_times[i] - ping_times[i - 1])
+            for i in range(1, len(ping_times))
         )
-
-
-
     else:
-
-
-
         jitter = 0.0
 
-
-
-
-
-    # ========================================================
-
-    # STATUS
-
-    # ========================================================
-
-
-
     if average_ping <= 50:
-
-
-
         status = "excellent"
-
-
-
     elif average_ping <= 100:
-
-
-
         status = "good"
-
-
-
     elif average_ping <= 200:
-
-
-
         status = "average"
-
-
-
     else:
-
-
-
         status = "poor"
 
-
-
-
-
     return {
-
-
-
         "target": target,
-
-
-
         "packets_sent": packet_count,
-
-
-
-        "packets_received": len(
-
-            ping_times
-
-        ),
-
-
-
-        "packet_loss": round(
-
-            packet_loss,
-
-            2
-
-        ),
-
-
-
-        "ping_ms": round(
-
-            average_ping,
-
-            2
-
-        ),
-
-
-
-        "min_ping_ms": round(
-
-            minimum_ping,
-
-            2
-
-        ),
-
-
-
-        "max_ping_ms": round(
-
-            maximum_ping,
-
-            2
-
-        ),
-
-
-
-        "jitter_ms": round(
-
-            jitter,
-
-            2
-
-        ),
-
-
-
+        "packets_received": len(ping_times),
+        "packet_loss": round(packet_loss, 2),
+        "ping_ms": round(average_ping, 2),
+        "min_ping_ms": round(min(ping_times), 2),
+        "max_ping_ms": round(max(ping_times), 2),
+        "jitter_ms": round(jitter, 2),
         "samples": ping_times,
-
-
-
-        "status": status
-
+        "status": status,
     }
 
 
+@app.get("/api/diagnostic-profiles")
+def get_diagnostic_profiles():
+    return {"default": None, "profiles": list_profiles()}
 
+
+@app.get("/api/network-quality")
+def network_quality(profile: str | None = Query(default=None)):
+    # No profile: exactly the original behaviour (backward compatible).
+    if profile is None:
+        return measure_ping(DEFAULT_PACKET_COUNT)
+
+    try:
+        selected = get_profile(profile)
+    except UnknownProfileError:
+        valid = [p["id"] for p in list_profiles()]
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": f"Unknown diagnostic profile '{profile}'.",
+                "valid_profiles": valid,
+            },
+        )
+
+    return build_profile_result(selected, measure_ping(selected.packet_count))
 
 
 # ============================================================
