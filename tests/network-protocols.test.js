@@ -1,6 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { formatProtocolSummary } = require("../js/script.js");
+const {
+    formatProtocolSummary,
+    runNetworkProtocolTest
+} = require("../js/script.js");
 
 test("formats dual-stack connectivity", () => {
     assert.equal(

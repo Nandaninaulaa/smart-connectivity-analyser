@@ -104,6 +104,9 @@ def test_distinguishes_timeout_from_dns_failure(monkeypatch):
 
 
 def test_dns_timeout_is_bounded_and_reported_as_timeout(monkeypatch):
+    isolated_pool = ThreadPoolExecutor(max_workers=2)
+    monkeypatch.setattr(diagnostics, "_RESOLVER_POOL", isolated_pool)
+    monkeypatch.setattr(diagnostics, "_RESOLVER_SLOTS", BoundedSemaphore(2))
     monkeypatch.setattr(diagnostics, "RESOLVER_TIMEOUT_SECONDS", 0.01)
 
     def slow_resolve(*args, **kwargs):
@@ -111,11 +114,14 @@ def test_dns_timeout_is_bounded_and_reported_as_timeout(monkeypatch):
         return []
 
     monkeypatch.setattr(socket, "getaddrinfo", slow_resolve)
-    result = diagnostics.detect_network_protocols()
+    try:
+        result = diagnostics.detect_network_protocols()
 
-    assert result["connected"] is False
-    assert result["ipv4"]["reason"] == "timeout"
-    assert result["ipv6"]["reason"] == "timeout"
+        assert result["connected"] is False
+        assert result["ipv4"]["reason"] == "timeout"
+        assert result["ipv6"]["reason"] == "timeout"
+    finally:
+        isolated_pool.shutdown(wait=True)
 
 
 
