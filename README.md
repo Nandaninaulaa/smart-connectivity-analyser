@@ -235,7 +235,9 @@ For request schemas and interactive endpoint testing, open `/docs` while the loc
 - At least one measurement (`download_mbps`, `upload_mbps`, `ping_ms`, `jitter_ms`, `packet_loss`, `connectivity_score`) is required. Any unavailable measurement may be `null`.
 - Speeds, ping, and jitter must not be negative. `packet_loss` and `connectivity_score` must be between 0 and 100.
 - `NaN`, `Infinity`, and boolean values are rejected.
-- `timestamp` must be an ISO 8601 date-time. If it is omitted, the server time is used.
+- `timestamp` must be an ISO 8601 date-time. If it is omitted, the current server time is used.
+
+**Timestamps:** records are stored in one canonical UTC form, the format of JavaScript's `toISOString()` (for example `2026-11-02T04:30:00.000Z`). A timestamp with an offset such as `+05:30` is converted to the same instant in UTC. A timestamp without `Z` or an offset is read as the server's local time, which is how older versions of the backend stored records. `GET /api/network-history` returns timestamps in the same UTC form, filters `range`, `start_date` and `end_date` by UTC instant (dates are UTC calendar days), and orders records by UTC instant, then by `id`. Existing records are never rewritten; a stored value that is not a valid date-time is still returned as stored, after all other records, but is left out of time filters and AI training data. The logic lives in `backend/timestamps.py`.
 - `latitude` (-90 to 90) and `longitude` (-180 to 180) must be provided together.
 - `network_type` is limited to 50 characters.
 

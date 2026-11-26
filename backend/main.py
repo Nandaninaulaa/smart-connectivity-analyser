@@ -24,6 +24,11 @@ from backend.diagnostic_profiles import (
     get_profile,
     list_profiles,
 )
+from backend.timestamps import (
+    current_utc_timestamp,
+    to_canonical_utc,
+    utc_day_start,
+)
 from pathlib import Path
 
 import sqlite3
@@ -38,7 +43,7 @@ import subprocess
 import re
 
 import statistics
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 # ============================================================
 # AI MODEL IMPORTS
@@ -298,7 +303,11 @@ def get_connection():
 
     connection.row_factory = sqlite3.Row
 
-
+    # canonical_utc(timestamp) lets queries filter and sort stored values,
+    # including legacy formats, by their real UTC instant (issue #39).
+    connection.create_function(
+        "canonical_utc", 1, to_canonical_utc, deterministic=True
+    )
 
     return connection
 
@@ -477,16 +486,16 @@ class NetworkTest(BaseModel):
         if value is None or not value.strip():
             return None
 
-        try:
-            # Python < 3.11 does not accept a trailing "Z".
-            datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
+        # Store one canonical UTC form (issue #39). Offsets are converted
+        # to the same instant in UTC; a timestamp without an offset is
+        # read as server local time, matching older stored records.
+        canonical = to_canonical_utc(value)
+        if canonical is None:
             raise ValueError(
                 "timestamp must be an ISO 8601 date-time string"
             )
 
-        # Keep the original string so stored values are unchanged.
-        return value
+        return canonical
 
 
     @model_validator(mode="after")
@@ -849,7 +858,7 @@ def save_network_test(data: NetworkTest):
 
         data.timestamp
 
-        or datetime.now().isoformat()
+        or current_utc_timestamp()
 
     )
 
@@ -1004,6 +1013,24 @@ HISTORY_RANGE_WINDOWS = {
     "monthly": timedelta(days=365),
 }
 
+# Chronological order by UTC instant; id breaks ties between identical
+# instants. Records whose timestamp cannot be parsed come last.
+HISTORY_ORDER_BY = (
+    " ORDER BY canonical_utc(timestamp) IS NULL ASC,"
+    " canonical_utc(timestamp) ASC, id ASC"
+)
+
+
+def history_record(row):
+    """Return a history row with its timestamp in canonical UTC form.
+
+    The stored value is never changed. A legacy value that cannot be
+    parsed is returned as stored, so the record stays accessible.
+    """
+    record = dict(row)
+    record["timestamp"] = to_canonical_utc(record["timestamp"]) or record["timestamp"]
+    return record
+
 DEFAULT_NETWORK_HISTORY_PAGE_SIZE = 100
 MAX_NETWORK_HISTORY_PAGE_SIZE = 500
 
@@ -1070,26 +1097,33 @@ def get_network_history(
         conditions = []
         parameters = []
 
+        # Stored timestamps are compared by their UTC instant, so records
+        # in different formats and offsets filter correctly (issue #39).
+        # Canonical UTC strings have a fixed width, so text comparison of
+        # canonical values is chronological. Values that cannot be parsed
+        # become NULL and are left out of time filters.
+
         # Preserve the existing time-range behaviour
         # whenever a custom date range is not supplied.
         if start_date is None and end_date is None:
             if range != "all":
                 duration = HISTORY_RANGE_WINDOWS[range]
-                since = datetime.now() - duration
-                conditions.append("timestamp >= ?")
-                parameters.append(since.isoformat())
+                since = datetime.now(timezone.utc) - duration
+                conditions.append("canonical_utc(timestamp) >= ?")
+                parameters.append(to_canonical_utc(since.isoformat()))
 
         else:
+            # Calendar dates are UTC days.
             if start_date is not None:
-                conditions.append("timestamp >= ?")
-                parameters.append(start_date.isoformat())
+                conditions.append("canonical_utc(timestamp) >= ?")
+                parameters.append(utc_day_start(start_date))
 
             if end_date is not None:
                 # Exclusive upper boundary includes the entire end date.
                 end_exclusive = end_date + timedelta(days=1)
 
-                conditions.append("timestamp < ?")
-                parameters.append(end_exclusive.isoformat())
+                conditions.append("canonical_utc(timestamp) < ?")
+                parameters.append(utc_day_start(end_exclusive))
 
         if min_score is not None:
             conditions.append("connectivity_score >= ?")
@@ -1135,12 +1169,11 @@ def get_network_history(
             )
             total = cursor.fetchone()[0]
 
-            # id is a stable tie-breaker for rows with identical timestamps.
             cursor.execute(
-                query + " ORDER BY timestamp ASC, id ASC LIMIT ? OFFSET ?",
+                query + HISTORY_ORDER_BY + " LIMIT ? OFFSET ?",
                 parameters + [page_limit, page_offset],
             )
-            records = [dict(row) for row in cursor.fetchall()]
+            records = [history_record(row) for row in cursor.fetchall()]
             next_offset = page_offset + len(records)
             has_more = next_offset < total
 
@@ -1156,8 +1189,8 @@ def get_network_history(
             }
 
         # Keep the original list response for existing callers.
-        cursor.execute(query + " ORDER BY timestamp ASC, id ASC", parameters)
-        return [dict(row) for row in cursor.fetchall()]
+        cursor.execute(query + HISTORY_ORDER_BY, parameters)
+        return [history_record(row) for row in cursor.fetchall()]
 
     except sqlite3.Error as exc:
         raise HTTPException(
