@@ -3,7 +3,10 @@ const assert = require("node:assert/strict");
 
 const {
     evaluateProfileResult,
-    describeOutcome
+    describeOutcome,
+    loadDiagnosticProfiles,
+    selectDiagnosticProfile,
+    getSelectedProfile
 } = require("../js/script.js");
 
 const QUICK = {
@@ -64,6 +67,62 @@ describe("Quick Check", () => {
         );
 
         assert.equal(result.failed.length, 0);
+    });
+
+    test("does not mark packet loss successful without a valid measurement", () => {
+        const result = evaluateProfileResult(
+            QUICK,
+            backend({ packet_loss: null }),
+            null
+        );
+
+        assert.equal(result.state, "partial");
+        assert.deepEqual(result.failed, ["Packet loss"]);
+        assert.equal(
+            result.rows.find((row) => row.check === "packet_loss").status,
+            "failed"
+        );
+    });
+
+    test("accepts a measured zero packet-loss value", () => {
+        const result = evaluateProfileResult(QUICK, backend({ packet_loss: 0 }), null);
+
+        assert.equal(result.rows.find((row) => row.check === "packet_loss").status, "ok");
+        assert.equal(result.rows.find((row) => row.check === "packet_loss").detail, "0.00 %");
+    });
+});
+
+describe("Profile loading and selection", () => {
+    test("loads profiles and selects only an available option", async () => {
+        let requestedUrl;
+        const profiles = [QUICK, DETAILED];
+        const loaded = await loadDiagnosticProfiles(async (url, options) => {
+            requestedUrl = url;
+            assert.deepEqual(options, { cache: "no-store" });
+            return { ok: true, json: async () => ({ profiles }) };
+        });
+
+        assert.match(requestedUrl, /diagnostic-profiles$/);
+        assert.deepEqual(loaded, profiles);
+        assert.equal(selectDiagnosticProfile("quick"), QUICK);
+        assert.equal(getSelectedProfile(), QUICK);
+        assert.equal(selectDiagnosticProfile("missing"), null);
+        assert.equal(getSelectedProfile(), null);
+    });
+
+    test("clears a selected option when it is no longer available", async () => {
+        await loadDiagnosticProfiles(async () => ({
+            ok: true,
+            json: async () => ({ profiles: [QUICK] })
+        }));
+        selectDiagnosticProfile("quick");
+
+        await loadDiagnosticProfiles(async () => ({
+            ok: true,
+            json: async () => ({ profiles: [DETAILED] })
+        }));
+
+        assert.equal(getSelectedProfile(), null);
     });
 });
 
@@ -209,3 +268,4 @@ describe("Result summary message", () => {
         );
     });
 });
+
