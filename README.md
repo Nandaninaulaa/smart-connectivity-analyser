@@ -211,10 +211,14 @@ Make sure the backend is running before using frontend features that require API
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/health` | Check backend health |
+| GET | `/api/health/live` | Check that the API process is responding |
+| GET | `/api/health/ready` | Check whether required dependencies are available |
 | GET | `/api/ping` | Check basic API connectivity |
-| GET | `/api/network-quality` | Measure network quality using the backend ping test; optional `?profile=<id>` runs a diagnostic profile |
+| GET | `/api/network-quality` | Measure network quality using the backend ping test |
 | GET | `/api/dns-check` | Check whether the backend server can resolve a fixed hostname |
+
 | GET | `/api/diagnostic-profiles` | List the available diagnostic profiles |
+| GET | `/api/network-quality` | Measure network quality using the backend ping test. Optional `?profile=<id>` runs a diagnostic profile |
 | POST | `/api/network-test` | Submit/save a network test record |
 | GET | `/api/network-history` | Retrieve historical network records |
 | DELETE | `/api/network-history` | Delete saved network history |
@@ -224,6 +228,8 @@ Make sure the backend is running before using frontend features that require API
 | GET | `/api/ai/analyze` | Request combined AI analysis |
 
 For request schemas and interactive endpoint testing, open `/docs` while the local backend is running.
+
+`/api/health/live` returns `200 {"status":"alive"}` while the API process is running. `/api/health/ready` returns `200` when the existing SQLite history database is usable and `503` when it is not; its response contains `checks.database` and `optional.ai_models`. AI model availability is reported but does not change the status code, and neither endpoint runs network tests or model training.
 
 `GET /api/dns-check` reports whether the backend server can resolve a fixed public hostname and the lookup duration when available. The dashboard shows success, timeout, and resolver failure states alongside the network measurements. This diagnostic describes the backend host's resolver; it does not test the browser device's DNS settings.
 
@@ -439,5 +445,3 @@ Check whether a `LICENSE` file exists in the repository before reusing or redist
 <p align="center">
   🚀 <a href="https://smart-connectivity-analyser.onrender.com/">Try the Live Application</a>
 </p>
-
-

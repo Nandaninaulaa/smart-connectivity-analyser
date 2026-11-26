@@ -27,6 +27,7 @@ from backend.diagnostic_profiles import (
 from pathlib import Path
 
 import sqlite3
+from contextlib import closing
 import json
 import math
 import sys
@@ -566,17 +567,71 @@ def health():
 
 
 # ============================================================
+# LIVENESS AND READINESS
+# ============================================================
+# /api/health/live only reports that the API process is responding.
+# /api/health/ready checks that the required SQLite history database is usable.
+# Neither endpoint runs network diagnostics, trains models, or loads AI models.
 
-# SIMPLE PING
+
+def check_database_ready():
+    """Return True when the history database exists and has its table.
+
+    The file is opened read-only, so a probe can never create or change it,
+    and every failure is reduced to False so no internal detail can leak.
+    """
+    try:
+        # mode=ro prevents creating or changing the database; timeout=2
+        # bounds a locked-database wait; closing() always frees the connection.
+        with closing(
+            sqlite3.connect(f"{DB_PATH.as_uri()}?mode=ro", uri=True, timeout=2)
+        ) as connection:
+            # sqlite_master avoids reading or changing any user data.
+            row = connection.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'network_tests'"
+            ).fetchone()
+        return row is not None
+    except Exception:
+        # Every failure becomes False so no internal path or error text leaks.
+        return False
+
+
+@app.get("/api/health/live")
+def health_live():
+    return {"status": "alive"}
+
+
+@app.get("/api/health/ready")
+def health_ready():
+    database_ready = check_database_ready()
+
+    body = {
+        "status": "ready" if database_ready else "not_ready",
+        "checks": {
+            "database": "ok" if database_ready else "unavailable",
+        },
+        "optional": {
+            "ai_models": "available" if AI_MODELS_READY else "unavailable",
+        },
+    }
+
+    # A failed required dependency returns 503 with the same response schema.
+    return JSONResponse(status_code=200 if database_ready else 503, content=body)
+
 
 # ============================================================
-
-
 
 @app.get("/api/dns-check")
 def dns_check():
     # DNS failure is a measurement result, not a failure of the API itself.
     return check_dns()
+
+
+# SIMPLE PING
+
+# ============================================================
+
 
 
 @app.get("/api/ping")
@@ -957,6 +1012,9 @@ HISTORY_RANGE_WINDOWS = {
     "monthly": timedelta(days=365),
 }
 
+DEFAULT_NETWORK_HISTORY_PAGE_SIZE = 100
+MAX_NETWORK_HISTORY_PAGE_SIZE = 500
+
 
 @app.get("/api/network-history")
 def get_network_history(
@@ -965,6 +1023,17 @@ def get_network_history(
     end_date: date | None = None,
     min_score: float | None = Query(default=None, ge=0, le=100),
     max_score: float | None = Query(default=None, ge=0, le=100),
+    limit: int | None = Query(
+        default=None,
+        ge=1,
+        le=MAX_NETWORK_HISTORY_PAGE_SIZE,
+        description="Maximum number of records to return (1-500).",
+    ),
+    offset: int | None = Query(
+        default=None,
+        ge=0,
+        description="Number of matching records to skip.",
+    ),
 ):
     if range != "all" and range not in HISTORY_RANGE_WINDOWS:
         supported = ", ".join(["all", *HISTORY_RANGE_WINDOWS])
@@ -1054,16 +1123,49 @@ def get_network_history(
             FROM network_tests
         """
 
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
+        where_clause = (
+            " WHERE " + " AND ".join(conditions)
+            if conditions
+            else ""
+        )
+        query += where_clause
 
-        query += " ORDER BY timestamp ASC"
+        if limit is not None or offset is not None:
+            page_limit = (
+                limit if limit is not None else DEFAULT_NETWORK_HISTORY_PAGE_SIZE
+            )
+            page_offset = offset if offset is not None else 0
 
-        cursor.execute(query, parameters)
+            # Count the filtered records before applying page bounds.
+            cursor.execute(
+                "SELECT COUNT(*) FROM network_tests" + where_clause,
+                parameters,
+            )
+            total = cursor.fetchone()[0]
 
-        rows = cursor.fetchall()
+            # id is a stable tie-breaker for rows with identical timestamps.
+            cursor.execute(
+                query + " ORDER BY timestamp ASC, id ASC LIMIT ? OFFSET ?",
+                parameters + [page_limit, page_offset],
+            )
+            records = [dict(row) for row in cursor.fetchall()]
+            next_offset = page_offset + len(records)
+            has_more = next_offset < total
 
-        return [dict(row) for row in rows]
+            return {
+                "data": records,
+                "pagination": {
+                    "limit": page_limit,
+                    "offset": page_offset,
+                    "total": total,
+                    "has_more": has_more,
+                    "next_offset": next_offset if has_more else None,
+                },
+            }
+
+        # Keep the original list response for existing callers.
+        cursor.execute(query + " ORDER BY timestamp ASC, id ASC", parameters)
+        return [dict(row) for row in cursor.fetchall()]
 
     except sqlite3.Error as exc:
         raise HTTPException(
@@ -1331,4 +1433,3 @@ if __name__ == "__main__":
         reload=True
 
     )
-
