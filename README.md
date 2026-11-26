@@ -211,9 +211,14 @@ Make sure the backend is running before using frontend features that require API
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/health` | Check backend health |
+| GET | `/api/health/live` | Check that the API process is responding |
+| GET | `/api/health/ready` | Check whether required dependencies are available |
 | GET | `/api/ping` | Check basic API connectivity |
 | GET | `/api/network-quality` | Measure network quality using the backend ping test |
 | GET | `/api/network-protocols` | Check IPv4 and IPv6 connectivity independently |
+
+| GET | `/api/diagnostic-profiles` | List the available diagnostic profiles |
+| GET | `/api/network-quality` | Measure network quality using the backend ping test. Optional `?profile=<id>` runs a diagnostic profile |
 | POST | `/api/network-test` | Submit/save a network test record |
 | GET | `/api/network-history` | Retrieve historical network records |
 | DELETE | `/api/network-history` | Delete saved network history |
@@ -223,6 +228,8 @@ Make sure the backend is running before using frontend features that require API
 | GET | `/api/ai/analyze` | Request combined AI analysis |
 
 For request schemas and interactive endpoint testing, open `/docs` while the local backend is running.
+
+`/api/health/live` returns `200 {"status":"alive"}` while the API process is running. `/api/health/ready` returns `200` when the existing SQLite history database is usable and `503` when it is not; its response contains `checks.database` and `optional.ai_models`. AI model availability is reported but does not change the status code, and neither endpoint runs network tests or model training.
 
 `GET /api/network-protocols` reports a top-level `connected` flag and independent `ipv4` and `ipv6` results for the backend server's outbound network. Each protocol has a `status` of `available`, `unavailable`, or `unsupported`; unavailable results use a safe `reason` such as `dns_failure`, `timeout`, or `connection_failure`. The check uses a fixed hostname and HTTPS port, and it does not change the existing `/api/network-quality` response. This is a reachability probe for the backend host; it does not verify every destination or measure the browser device's ISP route.
 
@@ -238,7 +245,32 @@ For request schemas and interactive endpoint testing, open `/docs` while the loc
 > ⚠️ **Caution:** The history deletion endpoint can permanently remove saved network history. Use it only when you intentionally want to clear the records.
 
 ## 🤖 AI Components
+## 🩺 Diagnostic Profiles
 
+Choose how deep a network test goes. The profile definitions live in one
+validated config (`backend/diagnostic_profiles.py`) and are served to the
+frontend by `GET /api/diagnostic-profiles`, so the frontend and backend always
+agree on which measurements run.
+
+| Profile | Purpose | Checks | Approx. time |
+|---|---|---|---|
+| Standard Test *(default)* | The original test, unchanged | Ping, jitter, packet loss, download, upload | Varies |
+| `quick`: Quick Check | Fast status check | Latency (ping), packet loss | ~5 s |
+| `detailed`: Detailed Diagnosis | Deeper investigation | Ping, jitter, packet loss, download, upload | ~40 s |
+| `stability`: Stability Test | Consistency over a longer run | Ping, jitter, packet loss (40 packets) | ~45 s |
+
+Download and upload speeds are measured in the browser (Cloudflare speed
+test). The other checks are measured by the backend ping command.
+
+**Using a profile:** `GET /api/network-quality?profile=quick`. Without the
+`profile` parameter the endpoint behaves exactly as before, so existing callers
+keep working. An unknown profile returns `400` with the list of valid profile
+ids.
+
+Each check in a profile response reports `ok` or `failed` (or `client_side` for
+checks the browser measures). A failed check returns `null` instead of a made-up
+value, and every response includes `measured_at`, so old or simulated numbers are
+never shown as fresh results.
 ### Connectivity Prediction
 
 The application includes a HistGradientBoosting-based prediction component that estimates connectivity quality from available network data. Predictions depend on the available training records and input completeness, so treat them as estimates rather than guaranteed future performance.
@@ -413,5 +445,3 @@ Check whether a `LICENSE` file exists in the repository before reusing or redist
 <p align="center">
   🚀 <a href="https://smart-connectivity-analyser.onrender.com/">Try the Live Application</a>
 </p>
-
-
