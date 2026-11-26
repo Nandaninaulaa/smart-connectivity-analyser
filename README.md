@@ -212,8 +212,9 @@ Make sure the backend is running before using frontend features that require API
 |---|---|---|
 | GET | `/api/health` | Check backend health |
 | GET | `/api/ping` | Check basic API connectivity |
-| GET | `/api/network-quality` | Measure network quality using the backend ping test |
+| GET | `/api/network-quality` | Measure network quality using the backend ping test; optional `?profile=<id>` runs a diagnostic profile |
 | GET | `/api/dns-check` | Check whether the backend server can resolve a fixed hostname |
+| GET | `/api/diagnostic-profiles` | List the available diagnostic profiles |
 | POST | `/api/network-test` | Submit/save a network test record |
 | GET | `/api/network-history` | Retrieve historical network records |
 | DELETE | `/api/network-history` | Delete saved network history |
@@ -238,7 +239,32 @@ For request schemas and interactive endpoint testing, open `/docs` while the loc
 > ⚠️ **Caution:** The history deletion endpoint can permanently remove saved network history. Use it only when you intentionally want to clear the records.
 
 ## 🤖 AI Components
+## 🩺 Diagnostic Profiles
 
+Choose how deep a network test goes. The profile definitions live in one
+validated config (`backend/diagnostic_profiles.py`) and are served to the
+frontend by `GET /api/diagnostic-profiles`, so the frontend and backend always
+agree on which measurements run.
+
+| Profile | Purpose | Checks | Approx. time |
+|---|---|---|---|
+| Standard Test *(default)* | The original test, unchanged | Ping, jitter, packet loss, download, upload | Varies |
+| `quick`: Quick Check | Fast status check | Latency (ping), packet loss | ~5 s |
+| `detailed`: Detailed Diagnosis | Deeper investigation | Ping, jitter, packet loss, download, upload | ~40 s |
+| `stability`: Stability Test | Consistency over a longer run | Ping, jitter, packet loss (40 packets) | ~45 s |
+
+Download and upload speeds are measured in the browser (Cloudflare speed
+test). The other checks are measured by the backend ping command.
+
+**Using a profile:** `GET /api/network-quality?profile=quick`. Without the
+`profile` parameter the endpoint behaves exactly as before, so existing callers
+keep working. An unknown profile returns `400` with the list of valid profile
+ids.
+
+Each check in a profile response reports `ok` or `failed` (or `client_side` for
+checks the browser measures). A failed check returns `null` instead of a made-up
+value, and every response includes `measured_at`, so old or simulated numbers are
+never shown as fresh results.
 ### Connectivity Prediction
 
 The application includes a HistGradientBoosting-based prediction component that estimates connectivity quality from available network data. Predictions depend on the available training records and input completeness, so treat them as estimates rather than guaranteed future performance.
