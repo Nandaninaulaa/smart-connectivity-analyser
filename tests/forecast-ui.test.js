@@ -142,3 +142,92 @@ test("renderForecastSection displays insufficient-data state when no history exi
         global.document = originalDocument;
     }
 });
+
+test("renderForecastSection displays Insufficient Data for sparse-history fallback in overall badge and horizon cards", () => {
+    const makeEl = () => ({
+        dataset: {},
+        textContent: "",
+        className: "",
+        hidden: false,
+        children: [],
+        get firstChild() {
+            return this.children[0] || null;
+        },
+        appendChild(node) {
+            this.children.push(node);
+            return node;
+        },
+        removeChild(node) {
+            const idx = this.children.indexOf(node);
+            if (idx >= 0) this.children.splice(idx, 1);
+            return node;
+        },
+        append(...nodes) {
+            for (const n of nodes) this.appendChild(n);
+        },
+        setAttribute() {}
+    });
+
+    const elements = {
+        forecastRiskBadge: makeEl(),
+        forecastRiskIcon: makeEl(),
+        forecastRiskText: makeEl(),
+        forecastStatus: makeEl(),
+        forecastHorizons: makeEl(),
+        forecastRiskReasons: makeEl(),
+        forecastChartContainer: makeEl(),
+        forecastChart: makeEl()
+    };
+
+    const originalDocument = global.document;
+    global.document = {
+        getElementById: (id) => elements[id] || null,
+        createElement: () => makeEl()
+    };
+
+    try {
+        renderForecastSection({
+            success: true,
+            history_summary: { total_records: 1, fallback_used: true, sufficient_history: false },
+            degradation_risk: {
+                level: "Insufficient Data",
+                score: null,
+                reasons: ["Forecast uses sparse-history fallback; accuracy will improve as more tests are recorded."]
+            },
+            horizons: [
+                {
+                    horizon: "1h",
+                    hours_ahead: 1,
+                    degradation_risk: { level: "Insufficient Data", score: null },
+                    metrics: {
+                        connectivity_score: { predicted: 80.0, lower: 72.0, upper: 88.0, unit: "/100" }
+                    }
+                },
+                {
+                    horizon: "6h",
+                    hours_ahead: 6,
+                    degradation_risk: { level: "Insufficient Data", score: null },
+                    metrics: {
+                        connectivity_score: { predicted: 80.0, lower: 68.0, upper: 92.0, unit: "/100" }
+                    }
+                }
+            ]
+        });
+
+        assert.equal(elements.forecastRiskBadge.dataset.risk, "insufficient");
+        assert.equal(elements.forecastRiskText.textContent, "Insufficient Data");
+        assert.equal(elements.forecastHorizons.children.length, 2);
+
+        for (const card of elements.forecastHorizons.children) {
+            const header = card.children[0];
+            assert.ok(header);
+            const miniBadge = header.children.find((c) => c.className === "forecast-risk-badge");
+            assert.ok(miniBadge);
+            assert.equal(miniBadge.dataset.risk, "insufficient");
+            const labelSpan = miniBadge.children.find((c) => c.textContent === "Insufficient Data");
+            assert.ok(labelSpan);
+        }
+    } finally {
+        global.document = originalDocument;
+    }
+});

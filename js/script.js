@@ -3006,19 +3006,20 @@ function renderForecastSection(payload, unavailableMessage = null) {
     const summary = normalized.history_summary || {};
     const totalRecords = safeNumber(summary.total_records, 0);
     const hasHistory = totalRecords > 0;
+    const isFallback = !hasHistory || Boolean(summary.fallback_used) || summary.sufficient_history === false;
 
     latestForecastData = normalized;
     updateForecastRiskBadge(
-        hasHistory
-            ? normalized.degradation_risk
-            : { level: "Insufficient Data", score: null }
+        isFallback
+            ? { level: "Insufficient Data", score: null }
+            : normalized.degradation_risk
     );
 
     if (statusEl) {
         if (!hasHistory) {
             statusEl.textContent =
                 "Not enough historical measurements yet. Run a connectivity test to start forecasting.";
-        } else if (summary.fallback_used) {
+        } else if (isFallback) {
             statusEl.textContent =
                 `Sparse-history fallback active (${totalRecords} saved measurement${totalRecords === 1 ? "" : "s"}). Confidence ranges narrow as more tests accumulate.`;
         } else {
@@ -3042,7 +3043,10 @@ function renderForecastSection(payload, unavailableMessage = null) {
             title.className = "forecast-horizon-title";
             title.textContent = `+${entry.horizon} Horizon`;
 
-            const riskMeta = resolveForecastRiskMeta(entry.degradation_risk?.level);
+            const riskLevel = isFallback
+                ? "Insufficient Data"
+                : (entry.degradation_risk?.level || "Insufficient Data");
+            const riskMeta = resolveForecastRiskMeta(riskLevel);
             const miniBadge = document.createElement("span");
             miniBadge.className = "forecast-risk-badge";
             miniBadge.dataset.risk = riskMeta.key;

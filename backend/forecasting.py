@@ -355,7 +355,16 @@ def _score_degradation_risk(
     horizon_label: str,
     metrics: dict[str, dict[str, Any]],
     fallback_used: bool,
-) -> tuple[float, str, list[str]]:
+) -> tuple[float | None, str, list[str]]:
+    if fallback_used:
+        return (
+            None,
+            "Insufficient Data",
+            [
+                "Forecast uses sparse-history fallback; accuracy will improve as more tests are recorded."
+            ],
+        )
+
     score = 0.0
     reasons: list[str] = []
 
@@ -457,11 +466,7 @@ def _score_degradation_risk(
     else:
         level = "Low"
 
-    if fallback_used:
-        reasons.append(
-            "Forecast uses sparse-history fallback; accuracy will improve as more tests are recorded."
-        )
-    elif not reasons:
+    if not reasons:
         reasons.append("Projected connection metrics remain stable with low degradation risk.")
 
     return clamped, level, reasons
@@ -549,7 +554,7 @@ def generate_connectivity_forecast(
         risk_score, risk_level, reasons = _score_degradation_risk(
             label, metrics, fallback_used
         )
-        if risk_score > worst_score:
+        if risk_score is not None and risk_score > worst_score:
             worst_score = risk_score
             worst_level = risk_level
         for reason in reasons:
@@ -571,6 +576,19 @@ def generate_connectivity_forecast(
             }
         )
 
+    if fallback_used:
+        overall_risk = {
+            "score": None,
+            "level": "Insufficient Data",
+            "reasons": all_reasons[:4],
+        }
+    else:
+        overall_risk = {
+            "score": round(max(0.0, worst_score), 1),
+            "level": worst_level,
+            "reasons": all_reasons[:4],
+        }
+
     return {
         "success": True,
         "generated_at": generated_at.isoformat(),
@@ -583,10 +601,6 @@ def generate_connectivity_forecast(
             "method": method,
             "rolling_windows": rolling_summary,
         },
-        "degradation_risk": {
-            "score": round(max(0.0, worst_score), 1),
-            "level": worst_level,
-            "reasons": all_reasons[:4],
-        },
+        "degradation_risk": overall_risk,
         "horizons": horizon_entries,
     }

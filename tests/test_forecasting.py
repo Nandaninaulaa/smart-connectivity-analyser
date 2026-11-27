@@ -122,9 +122,13 @@ def test_forecast_single_record_sparse_fallback_bounds(client):
     assert body["history_summary"]["fallback_used"] is True
     assert body["history_summary"]["sufficient_history"] is False
     assert body["history_summary"]["method"] == "sparse_fallback"
+    assert body["degradation_risk"]["level"] == "Insufficient Data"
+    assert body["degradation_risk"]["score"] is None
 
     widths = []
     for h in body["horizons"]:
+        assert h["degradation_risk"]["level"] == "Insufficient Data"
+        assert h["degradation_risk"]["score"] is None
         conn = h["metrics"]["connectivity_score"]
         assert 0.0 <= conn["lower"] <= conn["predicted"] <= conn["upper"] <= 100.0
         widths.append(conn["upper"] - conn["lower"])
@@ -172,18 +176,19 @@ def test_forecast_risk_classification_moderate_and_high():
     moderate_records = [
         {
             "timestamp": (base + timedelta(hours=i)).isoformat(),
-            "download_mbps": 45 - i * 2.5,
-            "upload_mbps": 15 - i * 0.6,
-            "ping_ms": 55 + i * 7,
-            "jitter_ms": 10 + i * 1.5,
-            "packet_loss": 0.5 + i * 0.35,
-            "connectivity_score": 74 - i * 3.5,
+            "download_mbps": 50 - i * 1.5,
+            "upload_mbps": 20 - i * 0.4,
+            "ping_ms": 30 + i * 2.0,
+            "jitter_ms": 4 + i * 0.5,
+            "packet_loss": 0.1 + i * 0.1,
+            "connectivity_score": 82 - i * 2.0,
         }
         for i in range(6)
     ]
     moderate_res = generate_connectivity_forecast(moderate_records, now=base)
-    assert moderate_res["degradation_risk"]["level"] in ("Moderate", "High")
-    assert moderate_res["degradation_risk"]["score"] >= 35
+    assert moderate_res["degradation_risk"]["level"] == "Moderate"
+    assert 35 <= moderate_res["degradation_risk"]["score"] < 65
+    assert len(moderate_res["degradation_risk"]["reasons"]) >= 1
 
     high_records = [
         {
