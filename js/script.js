@@ -1562,6 +1562,7 @@ async function startNetworkTest() {
             ? `Running ${profile.label} (about ${profile.estimated_seconds}s)...`
             : "Measuring download, upload, ping and jitter..."
     );
+    setText("dnsStatus", "Checking DNS on the server...");
 
     currentMetrics = {
         download: null,
@@ -1577,6 +1578,14 @@ async function startNetworkTest() {
     updateDashboard();
 
     try {
+        void runBackendDnsCheck()
+            .then((dnsResult) => {
+                setText("dnsStatus", formatDnsStatus(dnsResult));
+            })
+            .catch(() => {
+                setText("dnsStatus", formatDnsStatus(null));
+            });
+
         const [backendResult, bandwidthResult, protocolResult] =
             await Promise.all([
                 runBackendNetworkQualityTest(profile?.id ?? null),
@@ -1585,6 +1594,8 @@ async function startNetworkTest() {
                     : Promise.resolve(null),
                 runNetworkProtocolTest()
             ]);
+
+
 
         if (abortTestIfOffline()) return;
 
@@ -1991,7 +2002,45 @@ async function runBackendNetworkQualityTest(profileId = null) {
     }
 }
 
-async function runNetworkProtocolTest() {
+async function runBackendDnsCheck() {
+    try {
+        const response = await fetch(
+            `${API_BASE}/dns-check`,
+            { method: "GET", cache: "no-store" }
+        );
+        if (!response.ok) {
+            throw new Error(`DNS check API returned ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.warn("Backend DNS check unavailable:", error.message);
+        return null;
+    }
+}
+
+function formatDnsStatus(result) {
+    if (!result || typeof result !== "object") {
+        return "Server DNS: status unavailable.";
+    }
+
+    const duration = Number.isFinite(result.duration_ms)
+        ? ` in ${result.duration_ms} ms`
+        : "";
+
+    if (result.status === "ok") {
+        return `Server DNS: resolved${duration}.`;
+    }
+
+    const category = {
+        not_found: "hostname not found",
+        resolver_unavailable: "resolver unavailable",
+        capacity_exhausted: "diagnostic capacity reached",
+        timeout: "lookup timed out",
+        unknown: "lookup failed"
+    }[result.failure_category] || "lookup failed";
+
+    return `Server DNS: ${category}${duration}.`;
+} async function runNetworkProtocolTest() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     try {
@@ -3531,6 +3580,7 @@ if (typeof module !== "undefined" && module.exports) {
         smartConnectivity,
         resolveNetworkType,
         detectNetworkType,
+        formatDnsStatus,
         normalizeForecastResponse,
         resolveForecastRiskMeta,
         formatForecastRange,

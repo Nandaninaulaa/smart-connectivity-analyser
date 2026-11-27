@@ -51,6 +51,8 @@ import re
 import statistics
 from datetime import date, datetime, timedelta, timezone
 
+from backend.dns_check import check_dns
+
 # ============================================================
 # AI MODEL IMPORTS
 # ============================================================
@@ -662,6 +664,10 @@ def health_ready():
 
 # ============================================================
 
+@app.get("/api/dns-check")
+def dns_check():
+    # DNS failure is a measurement result, not a failure of the API itself.
+    return check_dns()
 @app.get("/api/network-protocols")
 def network_protocols():
     """Report independent IPv4/IPv6 connectivity without changing ping data."""
