@@ -215,6 +215,7 @@ Make sure the backend is running before using frontend features that require API
 | GET | `/api/health/ready` | Check whether required dependencies are available |
 | GET | `/api/ping` | Check basic API connectivity |
 | GET | `/api/network-quality` | Measure network quality using the backend ping test |
+| GET | `/api/network-protocols` | Check IPv4 and IPv6 connectivity independently |
 
 | GET | `/api/diagnostic-profiles` | List the available diagnostic profiles |
 | GET | `/api/network-quality` | Measure network quality using the backend ping test. Optional `?profile=<id>` runs a diagnostic profile |
@@ -229,6 +230,8 @@ Make sure the backend is running before using frontend features that require API
 For request schemas and interactive endpoint testing, open `/docs` while the local backend is running.
 
 `/api/health/live` returns `200 {"status":"alive"}` while the API process is running. `/api/health/ready` returns `200` when the existing SQLite history database is usable and `503` when it is not; its response contains `checks.database` and `optional.ai_models`. AI model availability is reported but does not change the status code, and neither endpoint runs network tests or model training.
+
+`GET /api/network-protocols` reports a top-level `connected` flag and independent `ipv4` and `ipv6` results for the backend server's outbound network. Each protocol has a `status` of `available`, `unavailable`, or `unsupported`; unavailable results use a safe `reason` such as `dns_failure`, `timeout`, or `connection_failure`. The check uses a fixed hostname and HTTPS port, and it does not change the existing `/api/network-quality` response. This is a reachability probe for the backend host; it does not verify every destination or measure the browser device's ISP route.
 
 `POST /api/network-test` validates its input and returns `422` with details for invalid requests:
 
