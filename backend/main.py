@@ -1215,12 +1215,12 @@ def ai_prediction():
     try:
         predicted_score = final_predictor.predict()
 
-        if predicted_score >= 75:
+        if predicted_score >= 80:
             quality = "Excellent"
-        elif predicted_score >= 50:
+        elif predicted_score >= 60:
             quality = "Good"
-        elif predicted_score >= 25:
-            quality = "Average"
+        elif predicted_score >= 40:
+            quality = "Fair"
         else:
             quality = "Poor"
 
@@ -1242,7 +1242,6 @@ def ai_prediction():
             status_code=500,
             detail=f"Prediction failed: {error}",
         )
-
 
 # ============================================================
 # AI ANOMALY
