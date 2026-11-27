@@ -403,6 +403,9 @@
     <p id="dnsStatus" class="text-xs text-slate-500" role="status" aria-live="polite">
       Server DNS status appears after a connectivity test.
     </p>
+    <p id="protocolStatus" class="text-xs text-slate-500" role="status" aria-live="polite">
+      Server IPv4/IPv6 status appears after a connectivity test.
+    </p>
 
     <details class="border-t border-violet-100 pt-3 text-xs text-slate-600">
       <summary class="font-bold cursor-pointer">How is this calculated?</summary>
@@ -777,8 +780,10 @@
   <span id="toast-message">Notification</span>
 </div>
 
-<!-- SHARED SCORING MODULE (loaded first, tested by the node suite) -->
+<!-- SHARED MODULES (loaded first, tested by the node suite) -->
 <script src="js/connectivity-score.js"></script>
+<script src="js/metrics.js"></script>
+<script src="js/network-status.js"></script>
 
 <!-- PRIMARY JAVASCRIPT -->
 <script src="js/script.js"></script>
