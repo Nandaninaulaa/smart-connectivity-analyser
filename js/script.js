@@ -2029,7 +2029,7 @@ function formatDnsStatus(result) {
     }[result.failure_category] || "lookup failed";
 
     return `Server DNS: ${category}${duration}.`;
-async function runNetworkProtocolTest() {
+} async function runNetworkProtocolTest() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     try {
