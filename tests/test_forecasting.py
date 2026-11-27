@@ -92,9 +92,12 @@ def test_forecast_empty_database_uses_safe_sparse_fallback(client):
     assert body["history_summary"]["sufficient_history"] is False
     assert body["history_summary"]["fallback_used"] is True
     assert body["history_summary"]["method"] == "sparse_fallback"
-    assert body["degradation_risk"]["level"] == "Low"
+    assert body["degradation_risk"]["level"] == "Insufficient Data"
+    assert body["degradation_risk"]["score"] is None
     assert [h["horizon"] for h in body["horizons"]] == ["1h", "6h", "24h"]
     for h in body["horizons"]:
+        assert h["degradation_risk"]["level"] == "Insufficient Data"
+        assert h["degradation_risk"]["score"] is None
         for field in FORECAST_METRICS:
             assert h["metrics"][field]["predicted"] is None
             assert h["metrics"][field]["trend"] == "unavailable"

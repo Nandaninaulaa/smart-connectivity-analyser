@@ -1833,16 +1833,18 @@ async function startNetworkTest() {
     updateDashboard();
 
     try {
-        const [backendResult, bandwidthResult] =
+        const [backendResult, bandwidthResult, protocolResult] =
             await Promise.all([
                 runBackendNetworkQualityTest(profile?.id ?? null),
                 runsBandwidth
                     ? runCloudflareBandwidthTest()
-                    : Promise.resolve(null)
+                    : Promise.resolve(null),
+                runNetworkProtocolTest()
             ]);
 
         if (abortTestIfOffline()) return;
 
+        setText("protocolStatus", formatProtocolSummary(protocolResult));
         applyBackendMetrics(backendResult);
         applyBandwidthMetrics(bandwidthResult);
 
@@ -2243,6 +2245,59 @@ async function runBackendNetworkQualityTest(profileId = null) {
 
         return null;
     }
+}
+
+async function runNetworkProtocolTest() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+        const response = await fetch(
+            `${API_BASE}/network-protocols`,
+            {
+                method: "GET",
+                cache: "no-store",
+                signal: controller.signal
+            }
+        );
+
+        if (!response.ok) {
+            throw new Error(`Network protocol API returned ${response.status}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.warn("Network protocol endpoint unavailable:", error.message);
+        return null;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+function formatProtocolSummary(result) {
+    if (!result || typeof result !== "object") {
+        return "Server IPv4/IPv6 status is unavailable.";
+    }
+
+    const describe = (protocol, check) => {
+        const label = protocol;
+        if (!check || typeof check !== "object") {
+            return `${label} status unknown`;
+        }
+        if (check.status === "available") {
+            return `${label} connected`;
+        }
+        if (check.status === "unsupported") {
+            return `${label} unsupported`;
+        }
+        const reason = {
+            dns_failure: "DNS lookup failed",
+            timeout: "connection timed out",
+            connection_failure: "connection failed"
+        }[check.reason] || "unavailable";
+        return `${label} ${reason}`;
+    };
+
+    return `Server: ${describe("IPv4", result.ipv4)} · ${describe("IPv6", result.ipv6)}`;
 }
 
 function applyBackendMetrics(data) {
@@ -2980,6 +3035,17 @@ function resolveForecastRiskMeta(level) {
             iconClass: "fa-solid fa-circle-check"
         };
     }
+    if (
+        normalized === "insufficient data" ||
+        normalized === "insufficient_data" ||
+        normalized === "insufficient"
+    ) {
+        return {
+            key: "insufficient",
+            label: "Insufficient Data",
+            iconClass: "fa-solid fa-circle-info"
+        };
+    }
     return {
         key: "unavailable",
         label: "Pending Forecast",
@@ -3021,7 +3087,11 @@ function normalizeForecastResponse(payload) {
         success: Boolean(payload.success),
         generated_at: payload.generated_at || null,
         history_summary: payload.history_summary || {},
-        degradation_risk: payload.degradation_risk || { level: "Low", score: 0, reasons: [] },
+        degradation_risk: payload.degradation_risk || {
+            level: "Insufficient Data",
+            score: null,
+            reasons: []
+        },
         horizons
     };
 }
@@ -3037,7 +3107,9 @@ function updateForecastRiskBadge(risk) {
 
     const score = safeNumber(risk?.score);
     text.textContent =
-        score !== null && meta.key !== "unavailable"
+        score !== null &&
+        meta.key !== "unavailable" &&
+        meta.key !== "insufficient"
             ? `${meta.label} (${Math.round(score)}/100)`
             : meta.label;
 
@@ -3187,13 +3259,19 @@ function renderForecastSection(payload, unavailableMessage = null) {
         return;
     }
 
-    latestForecastData = normalized;
-    updateForecastRiskBadge(normalized.degradation_risk);
-
     const summary = normalized.history_summary || {};
     const totalRecords = safeNumber(summary.total_records, 0);
+    const hasHistory = totalRecords > 0;
+
+    latestForecastData = normalized;
+    updateForecastRiskBadge(
+        hasHistory
+            ? normalized.degradation_risk
+            : { level: "Insufficient Data", score: null }
+    );
+
     if (statusEl) {
-        if (totalRecords === 0) {
+        if (!hasHistory) {
             statusEl.textContent =
                 "Not enough historical measurements yet. Run a connectivity test to start forecasting.";
         } else if (summary.fallback_used) {
@@ -3208,7 +3286,8 @@ function renderForecastSection(payload, unavailableMessage = null) {
     if (horizonsEl) {
         while (horizonsEl.firstChild) horizonsEl.removeChild(horizonsEl.firstChild);
 
-        normalized.horizons.forEach((entry) => {
+        if (hasHistory) {
+            normalized.horizons.forEach((entry) => {
             const card = document.createElement("article");
             card.className = "forecast-horizon-card";
 
@@ -3266,9 +3345,10 @@ function renderForecastSection(payload, unavailableMessage = null) {
                 list.append(dt, dd);
             });
 
-            card.append(header, scoreEl, rangeEl, list);
-            horizonsEl.appendChild(card);
-        });
+                card.append(header, scoreEl, rangeEl, list);
+                horizonsEl.appendChild(card);
+            });
+        }
     }
 
     if (reasonsEl) {
@@ -3705,7 +3785,9 @@ if (typeof module !== "undefined" && module.exports) {
         resolveForecastRiskMeta,
         formatForecastRange,
         loadConnectivityForecast,
-        renderForecastSection
+        renderForecastSection,
+        formatProtocolSummary,
+        runNetworkProtocolTest
     };
 }
 /* =========================================================

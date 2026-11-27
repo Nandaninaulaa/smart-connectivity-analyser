@@ -509,7 +509,7 @@ def generate_connectivity_forecast(
                 "target_timestamp": (
                     generated_at + timedelta(hours=hours)
                 ).isoformat(),
-                "degradation_risk": {"score": 0.0, "level": "Low"},
+                "degradation_risk": {"score": None, "level": "Insufficient Data"},
                 "metrics": empty_metrics,
             }
             for label, hours in selected_horizons
@@ -527,8 +527,8 @@ def generate_connectivity_forecast(
                 "rolling_windows": rolling_summary,
             },
             "degradation_risk": {
-                "score": 0.0,
-                "level": "Low",
+                "score": None,
+                "level": "Insufficient Data",
                 "reasons": [
                     "Not enough historical measurements yet to generate a trend forecast."
                 ],

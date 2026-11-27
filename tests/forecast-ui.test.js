@@ -4,7 +4,8 @@ const assert = require("node:assert/strict");
 const {
     normalizeForecastResponse,
     resolveForecastRiskMeta,
-    formatForecastRange
+    formatForecastRange,
+    renderForecastSection
 } = require("../js/script.js");
 
 test("normalizeForecastResponse rejects empty or invalid payloads", () => {
@@ -54,6 +55,11 @@ test("resolveForecastRiskMeta maps risk levels to accessible labels and icons", 
         label: "High Risk",
         iconClass: "fa-solid fa-triangle-exclamation"
     });
+    assert.deepEqual(resolveForecastRiskMeta("Insufficient Data"), {
+        key: "insufficient",
+        label: "Insufficient Data",
+        iconClass: "fa-solid fa-circle-info"
+    });
     assert.equal(resolveForecastRiskMeta("unknown").key, "unavailable");
 });
 
@@ -67,4 +73,72 @@ test("formatForecastRange formats point forecast and confidence bounds safely", 
         "Unavailable"
     );
     assert.equal(formatForecastRange(null, 1), "Unavailable");
+});
+
+test("renderForecastSection displays insufficient-data state when no history exists", () => {
+    const makeEl = () => ({
+        dataset: {},
+        textContent: "",
+        className: "",
+        hidden: false,
+        children: [],
+        get firstChild() {
+            return this.children[0] || null;
+        },
+        appendChild(node) {
+            this.children.push(node);
+            return node;
+        },
+        removeChild(node) {
+            const idx = this.children.indexOf(node);
+            if (idx >= 0) this.children.splice(idx, 1);
+            return node;
+        },
+        setAttribute() {}
+    });
+
+    const elements = {
+        forecastRiskBadge: makeEl(),
+        forecastRiskIcon: makeEl(),
+        forecastRiskText: makeEl(),
+        forecastStatus: makeEl(),
+        forecastHorizons: makeEl(),
+        forecastRiskReasons: makeEl(),
+        forecastChartContainer: makeEl(),
+        forecastChart: makeEl()
+    };
+
+    const originalDocument = global.document;
+    global.document = {
+        getElementById: (id) => elements[id] || null,
+        createElement: () => makeEl()
+    };
+
+    try {
+        renderForecastSection({
+            success: true,
+            history_summary: { total_records: 0, fallback_used: true },
+            degradation_risk: {
+                level: "Insufficient Data",
+                score: null,
+                reasons: ["Not enough historical measurements yet to generate a trend forecast."]
+            },
+            horizons: [
+                {
+                    horizon: "1h",
+                    hours_ahead: 1,
+                    degradation_risk: { level: "Insufficient Data", score: null },
+                    metrics: { connectivity_score: { predicted: null, unit: "/100" } }
+                }
+            ]
+        });
+
+        assert.equal(elements.forecastRiskBadge.dataset.risk, "insufficient");
+        assert.equal(elements.forecastRiskText.textContent, "Insufficient Data");
+        assert.equal(elements.forecastHorizons.children.length, 0);
+        assert.equal(elements.forecastChartContainer.hidden, true);
+        assert.match(elements.forecastStatus.textContent, /Not enough historical measurements/i);
+    } finally {
+        global.document = originalDocument;
+    }
 });

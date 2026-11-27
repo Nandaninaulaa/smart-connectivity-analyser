@@ -888,7 +888,8 @@ select.control-btn {
   color: #991b1b;
 }
 
-.forecast-risk-badge[data-risk="unavailable"] {
+.forecast-risk-badge[data-risk="unavailable"],
+.forecast-risk-badge[data-risk="insufficient"] {
   background: #f1f5f9;
   color: #334155;
 }
