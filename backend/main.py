@@ -20,6 +20,7 @@ from pydantic import (
 from pathlib import Path
 
 import sqlite3
+import os
 import json
 import math
 import sys
@@ -461,8 +462,6 @@ class NetworkTest(BaseModel):
             raise ValueError("Input should be a number, not a boolean")
 
         return value
-
-
     @field_validator("timestamp")
     @classmethod
     def validate_timestamp(cls, value):
@@ -495,6 +494,50 @@ class NetworkTest(BaseModel):
             )
 
         return self
+
+
+class HistoryDeleteRequest(BaseModel):
+    ids: list[int] = Field(default_factory=list, max_length=500)
+
+    @field_validator("ids", mode="before")
+    @classmethod
+    def validate_ids(cls, value):
+        if not isinstance(value, list) or any(
+            isinstance(item, bool) or not isinstance(item, int) or item <= 0
+            for item in value
+        ):
+            raise ValueError("History record IDs must be positive integers")
+        return value
+
+
+DEFAULT_HISTORY_RETENTION_DAYS = 365
+MAX_HISTORY_CLEANUP_BATCH = 500
+
+
+def get_history_retention_days() -> int:
+    try:
+        days = int(os.getenv("NETWORK_HISTORY_RETENTION_DAYS", DEFAULT_HISTORY_RETENTION_DAYS))
+    except (TypeError, ValueError):
+        return DEFAULT_HISTORY_RETENTION_DAYS
+    return min(max(days, 1), 3650)
+
+
+def cleanup_expired_history(connection, *, now=None, batch_size=MAX_HISTORY_CLEANUP_BATCH):
+    """Delete at most one bounded batch of expired measurements per write."""
+    cutoff = (now or datetime.now()) - timedelta(days=get_history_retention_days())
+    cursor = connection.execute(
+        """
+        DELETE FROM network_tests
+        WHERE id IN (
+            SELECT id FROM network_tests
+            WHERE datetime(timestamp) < datetime(?)
+            ORDER BY datetime(timestamp) ASC, id ASC
+            LIMIT ?
+        )
+        """,
+        (cutoff.isoformat(), min(max(int(batch_size), 1), MAX_HISTORY_CLEANUP_BATCH)),
+    )
+    return cursor.rowcount
 
 
 
@@ -1157,6 +1200,9 @@ def save_network_test(data: NetworkTest):
 
     test_id = cursor.lastrowid
 
+    cleanup_expired_history(connection)
+    connection.commit()
+
 
 
     connection.close()
@@ -1508,49 +1554,47 @@ def ai_analyze():
 
 
 @app.delete("/api/network-history")
+def delete_network_history(
+    request: HistoryDeleteRequest | None = None,
+    delete_all: bool = Query(default=False, alias="all"),
+):
+    if not delete_all and request is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Select history records to delete, or explicitly request all=true.",
+        )
 
-def delete_network_history():
-
-
-
-    connection = get_connection()
-
-
-
-    cursor = connection.cursor()
-
-
-
-    cursor.execute(
-
-        "DELETE FROM network_tests"
-
-    )
-
-
-
-    connection.commit()
-
-
-
-    connection.close()
-
-
-
-
-
-    return {
-
-        "status": "success",
-
-        "message": "Network history deleted"
-
-    }
-
-
-
-
-
+    try:
+        connection = get_connection()
+        try:
+            if delete_all:
+                cursor = connection.execute("DELETE FROM network_tests")
+            else:
+                ids = request.ids
+                if not ids:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="At least one history record ID is required.",
+                    )
+                placeholders = ",".join("?" for _ in ids)
+                cursor = connection.execute(
+                    f"DELETE FROM network_tests WHERE id IN ({placeholders})", ids
+                )
+            connection.commit()
+            return {
+                "status": "success",
+                "deleted_count": cursor.rowcount,
+                "message": "Network history deleted",
+            }
+        finally:
+            connection.close()
+    except HTTPException:
+        raise
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not delete network history because the database operation failed.",
+        ) from exc
 # ============================================================
 
 # RUN SERVER
