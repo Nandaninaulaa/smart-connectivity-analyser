@@ -218,3 +218,43 @@ def test_retention_database_failures_return_safe_errors(
     assert response.status_code == 500
     assert response.json() == {"detail": expected}
     assert "not a database" not in response.text.lower()
+
+
+
+def test_large_retention_cleanup_uses_background_batches(client, monkeypatch):
+    monkeypatch.setattr(main, "HISTORY_RETENTION_BATCH_SIZE", 2)
+    now = datetime.now(timezone.utc)
+    expired_ids = [
+        save_record(client, (now - timedelta(days=days)).isoformat())
+        for days in (60, 50, 40)
+    ]
+    recent_id = save_record(client, (now - timedelta(days=10)).isoformat())
+
+    response = client.put(
+        "/api/network-history/retention",
+        json={"retention_days": 30},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["deleted_count"] == 2
+    assert response.json()["cleanup_scheduled"] is True
+    remaining_ids = [
+        record["id"]
+        for record in client.get("/api/network-history?range=all").json()
+    ]
+    assert remaining_ids == [recent_id]
+    assert not set(expired_ids).intersection(remaining_ids)
+
+
+def test_scheduled_retention_cleanup_logs_database_failures(
+    client, tmp_path, monkeypatch, caplog
+):
+    corrupt = tmp_path / "corrupt-cleanup.db"
+    corrupt.write_bytes(b"not an sqlite database")
+    monkeypatch.setattr(main, "DB_PATH", corrupt)
+
+    with caplog.at_level("ERROR", logger=main.logger.name):
+        deleted_count = main.cleanup_expired_history()
+
+    assert deleted_count == 0
+    assert "scheduled network history retention cleanup failed" in caplog.text.lower()
