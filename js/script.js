@@ -163,6 +163,7 @@ async function initializeApplication() {
 
     initializeMap();
     initializeChart();
+    checkBrowserCapabilities();
     loadSavedLocations();
 
     await loadNetworkHistory();
@@ -520,13 +521,83 @@ function ensureMapReady() {
    LOCATION
    ========================================================= */
 
-function detectLocation() {
-    if (!navigator.geolocation) {
+function checkStorageCapability(storage) {
+    if (storage === undefined) {
+        try {
+            storage = typeof globalThis !== "undefined" ? globalThis.localStorage : null;
+        } catch (_) {
+            storage = null;
+        }
+    }
+    if (
+        !storage ||
+        typeof storage.setItem !== "function" ||
+        typeof storage.removeItem !== "function"
+    ) {
+        return {
+            supported: false,
+            message: "Saved locations are unavailable because browser storage is not supported."
+        };
+    }
+
+    const probeKey = `__sca_storage_check_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    try {
+        storage.setItem(probeKey, "1");
+        storage.removeItem(probeKey);
+        return { supported: true, message: "Saved-location storage is available in this browser." };
+    } catch (error) {
+        try {
+            storage.removeItem(probeKey);
+        } catch (_) {
+            // Storage may be blocked entirely.
+        }
+        return {
+            supported: false,
+            message: "Saved locations are unavailable because browser storage is blocked or full."
+        };
+    }
+}
+
+function checkBrowserCapabilities() {
+    const geolocation = typeof navigator !== "undefined" ? navigator.geolocation : null;
+    const geolocationElement = $("geolocationCapability");
+    const storageElement = $("storageCapability");
+
+    if (geolocationElement) {
+        geolocationElement.textContent = geolocation &&
+            typeof geolocation.getCurrentPosition === "function"
+            ? "Location detection is supported. Your browser will ask before sharing your location."
+            : "Location detection is unavailable because this browser does not support geolocation.";
+    }
+
+    const storageResult = checkStorageCapability();
+    if (storageElement) storageElement.textContent = storageResult.message;
+
+    if (
+        geolocation &&
+        typeof navigator.permissions?.query === "function"
+    ) {
+        navigator.permissions.query({ name: "geolocation" }).then((permission) => {
+            if (permission.state === "denied" && geolocationElement) {
+                geolocationElement.textContent = "Location permission is blocked. Allow location access in browser site settings to use location detection.";
+            }
+        }).catch(() => {
+            // Permission queries are optional; the location request reports the actual outcome.
+        });
+    }
+}
+
+function detectLocation(geolocation = typeof navigator !== "undefined" ? navigator.geolocation : null) {
+    if (!geolocation || typeof geolocation.getCurrentPosition !== "function") {
         showToast("Geolocation is not supported.");
 
         setText(
             "locationResult",
             "Geolocation is not supported by this browser."
+        );
+        setText(
+            "geolocationCapability",
+            "Location detection is unavailable because this browser does not support geolocation."
         );
 
         return;
@@ -537,7 +608,7 @@ function detectLocation() {
         "Detecting your current location..."
     );
 
-    navigator.geolocation.getCurrentPosition(
+    geolocation.getCurrentPosition(
         (position) => {
             const latitude = position.coords.latitude;
             const longitude = position.coords.longitude;
@@ -582,6 +653,10 @@ function detectLocation() {
             if (error.code === 1) {
                 message =
                     "Location permission denied. Allow location access in your browser.";
+                setText(
+                    "geolocationCapability",
+                    "Location permission is blocked. Allow location access in browser site settings to use location detection."
+                );
             } else if (error.code === 2) {
                 message = "Location information is unavailable.";
             } else if (error.code === 3) {
@@ -3477,6 +3552,8 @@ const smartConnectivity = {
     checkBackendHealth,
     loadNetworkHistory,
     detectLocation,
+    checkBrowserCapabilities,
+    checkStorageCapability,
     saveLocation,
     findBetterArea,
     startNetworkTest,
@@ -3578,6 +3655,9 @@ if (typeof module !== "undefined" && module.exports) {
         normalizeHistoryItem,
         applyHistoryMetricFilter,
         smartConnectivity,
+        detectLocation,
+        checkBrowserCapabilities,
+        checkStorageCapability,
         resolveNetworkType,
         detectNetworkType,
         formatDnsStatus,
