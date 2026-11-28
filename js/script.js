@@ -2017,8 +2017,8 @@ async function startNetworkTest() {
             longitude: currentLocation?.longitude ?? null
         };
 
-        sessionTests.push(normalizeHistoryItem(entry));
-        const localHistoryIndex = sessionTests.length - 1;
+        const localHistoryItem = normalizeHistoryItem(entry);
+        sessionTests.push(localHistoryItem);
 
         updateHistoryChart(sessionTests);
         updateSessionStatistics();
@@ -2026,7 +2026,8 @@ async function startNetworkTest() {
         // Do not save an empty record when every check failed.
         if (outcome?.state !== "error") {
             const savedId = await saveNetworkTest(entry);
-            if (savedId !== null) {
+            const localHistoryIndex = sessionTests.indexOf(localHistoryItem);
+            if (savedId !== null && localHistoryIndex >= 0) {
                 sessionTests[localHistoryIndex] = normalizeHistoryItem({
                     ...entry,
                     id: savedId
