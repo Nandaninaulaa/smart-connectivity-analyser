@@ -2018,13 +2018,21 @@ async function startNetworkTest() {
         };
 
         sessionTests.push(normalizeHistoryItem(entry));
+        const localHistoryIndex = sessionTests.length - 1;
 
         updateHistoryChart(sessionTests);
         updateSessionStatistics();
 
         // Do not save an empty record when every check failed.
         if (outcome?.state !== "error") {
-            await saveNetworkTest(entry);
+            const savedId = await saveNetworkTest(entry);
+            if (savedId !== null) {
+                sessionTests[localHistoryIndex] = normalizeHistoryItem({
+                    ...entry,
+                    id: savedId
+                });
+                renderHistoryRecords(sessionTests);
+            }
             await loadConnectivityForecast();
         }
 
@@ -3606,20 +3614,26 @@ async function saveNetworkTest(testData) {
         );
 
         if (response.ok) {
+            const saved = await response.json();
+            const savedId = Number(saved.id);
             console.log("Network test saved to backend.");
-            return;
+            return Number.isSafeInteger(savedId) && savedId > 0
+                ? savedId
+                : null;
         }
 
         console.warn(
             "POST /network-test returned:",
             response.status
         );
+        return null;
 
     } catch (error) {
         console.warn(
             "Could not save network test:",
             error.message
         );
+        return null;
     }
 }
 
