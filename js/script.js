@@ -1312,7 +1312,18 @@ function updateHistorySelectionControls() {
 
 function renderHistoryRecords(records = sessionTests) {
     const container = $("historyRecordsList");
-    if (!container) return;
+    // Existing Node tests use deliberately small DOM stubs. The selectable
+    // list is optional outside the real page, so skip rendering when the
+    // host does not implement the DOM methods this widget needs.
+    if (
+        !container ||
+        typeof container.replaceChildren !== "function" ||
+        typeof document === "undefined" ||
+        typeof document.createElement !== "function"
+    ) {
+        updateHistorySelectionControls();
+        return;
+    }
     container.replaceChildren();
 
     const visibleRecords = (records || []).filter(
