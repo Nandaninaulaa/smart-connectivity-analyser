@@ -90,6 +90,7 @@
     .map-card,
     .readiness-card,
     .ai-card,
+    .forecast-card,
     .recommendation-card {
       grid-column: 1 / -1;
     }
@@ -361,7 +362,20 @@
     </button>
 
   </header>
+<!-- DIAGNOSTIC PROFILE -->
+<section id="profile-section" class="glass-card p-4 md:p-5 space-y-3" aria-labelledby="profileHeading">
+  <h2 id="profileHeading" class="text-sm font-semibold text-slate-700">Test profile</h2>
 
+  <fieldset id="profileSelector" class="profile-grid">
+    <legend class="sr-only">Choose a diagnostic profile</legend>
+  </fieldset>
+
+  <p id="profileNote" class="text-xs text-slate-500" hidden>
+    Extra profiles are unavailable right now (backend not reachable). The standard test still works.
+  </p>
+
+  <div id="profileResult" class="profile-result" role="status" aria-live="polite" hidden></div>
+</section>
   <!-- CONNECTIVITY SCORE -->
   <section id="main-content" tabindex="-1" class="score-card glass-card p-5 md:p-6 space-y-4" aria-labelledby="scoreHeading">
 
@@ -385,6 +399,13 @@
 
     <p id="testMessage" class="text-sm text-slate-600" role="status" aria-live="polite">
       Run a connectivity test to analyse your network.
+    </p>
+
+    <p id="dnsStatus" class="text-xs text-slate-500" role="status" aria-live="polite">
+      Server DNS status appears after a connectivity test.
+    </p>
+    <p id="protocolStatus" class="text-xs text-slate-500" role="status" aria-live="polite">
+      Server IPv4/IPv6 status appears after a connectivity test.
     </p>
 
     <details class="border-t border-violet-100 pt-3 text-xs text-slate-600">
@@ -741,6 +762,55 @@
 
   </section>
 
+  <!-- CONNECTIVITY FORECAST -->
+  <section id="forecastSection" class="forecast-card glass-card p-5 md:p-6 space-y-4" aria-labelledby="forecastHeading">
+
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/60 pb-3">
+      <div class="flex items-start gap-3">
+        <div class="w-11 h-11 shrink-0 rounded-2xl accent-gradient flex items-center justify-center text-white text-lg" aria-hidden="true">
+          <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
+        </div>
+
+        <div>
+          <h2 id="forecastHeading" class="text-lg font-bold">Connectivity Forecast</h2>
+          <p class="text-xs text-slate-600">Projected 1h, 6h, and 24h trends with confidence range and degradation risk</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <label for="forecastMetric" class="sr-only">Forecast metric</label>
+        <select id="forecastMetric" class="control-btn">
+          <option value="connectivity_score">Connectivity Score</option>
+          <option value="download_mbps">Download Speed</option>
+          <option value="upload_mbps">Upload Speed</option>
+          <option value="ping_ms">Ping</option>
+          <option value="jitter_ms">Jitter</option>
+          <option value="packet_loss">Packet Loss</option>
+        </select>
+
+        <span id="forecastRiskBadge" class="forecast-risk-badge" data-risk="unavailable">
+          <i id="forecastRiskIcon" class="fa-solid fa-circle-info" aria-hidden="true"></i>
+          <span id="forecastRiskText">Pending Forecast</span>
+        </span>
+      </div>
+    </div>
+
+    <p id="forecastStatus" class="text-xs text-slate-600" role="status" aria-live="polite">
+      Waiting for historical measurements to compute a connectivity forecast.
+    </p>
+
+    <div id="forecastHorizons" class="forecast-horizons" aria-label="Forecast horizons"></div>
+
+    <div id="forecastChartContainer" class="chart-container forecast-chart-container" hidden>
+      <canvas id="forecastChart" role="img" aria-label="Connectivity forecast chart with confidence intervals.">
+        Projected connectivity trend and confidence interval chart across 1h, 6h, and 24h horizons.
+      </canvas>
+    </div>
+
+    <ul id="forecastRiskReasons" class="forecast-reasons text-xs text-slate-600 list-none p-0 m-0 space-y-1" aria-label="Forecast risk factors" hidden></ul>
+
+  </section>
+
   <!-- NETWORK RECOMMENDATION -->
   <section class="recommendation-card glass-card p-5" aria-labelledby="recommendationHeading">
 
@@ -767,11 +837,15 @@
   <span id="toast-message">Notification</span>
 </div>
 
-<!-- SHARED SCORING MODULE (loaded first, tested by the node suite) -->
+<!-- SHARED MODULES (loaded first, tested by the node suite) -->
 <script src="js/connectivity-score.js"></script>
+<script src="js/metrics.js"></script>
+<script src="js/network-status.js"></script>
 
 <!-- PRIMARY JAVASCRIPT -->
 <script src="js/script.js"></script>
 
 </body>
 </html>
+
+
