@@ -424,6 +424,14 @@ def initialize_database():
 
 
 
+    # The deterministic timestamp expression index keeps retention batches
+    # and chronological history queries efficient on larger local databases.
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_network_tests_canonical_timestamp
+        ON network_tests(canonical_utc(timestamp), id)
+        """
+    )
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS network_history_settings (
