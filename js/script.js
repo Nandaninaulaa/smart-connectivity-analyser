@@ -1389,7 +1389,17 @@ async function loadHistoryRetentionPolicy() {
             throw new Error(await readHistoryApiError(response, `Retention API returned ${response.status}`));
         }
         const policy = await response.json();
-        select.value = policy.retention_days == null ? "" : String(policy.retention_days);
+        const selectedValue = policy.retention_days == null ? "" : String(policy.retention_days);
+        if (
+            selectedValue !== "" &&
+            !Array.from(select.options).some((option) => option.value === selectedValue)
+        ) {
+            const customOption = document.createElement("option");
+            customOption.value = selectedValue;
+            customOption.textContent = `${selectedValue} days (custom)`;
+            select.appendChild(customOption);
+        }
+        select.value = selectedValue;
         setHistoryRetentionMessage(
             policy.retention_days == null
                 ? "History is kept until you delete it."
