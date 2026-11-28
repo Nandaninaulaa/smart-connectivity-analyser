@@ -1307,9 +1307,13 @@ def update_network_history_retention(
         "deleted_count": deleted_count,
         "cleanup_scheduled": cleanup_scheduled,
         "message": (
-            "Retention updated. Remaining expired records will be cleaned up in the background."
-            if cleanup_scheduled
-            else "Retention updated. Expired local history has been cleaned up."
+            "Retention disabled. Existing local history will be kept until it is deleted manually."
+            if payload.retention_days is None
+            else (
+                "Retention updated. Remaining expired records will be cleaned up in the background."
+                if cleanup_scheduled
+                else "Retention updated. Expired local history has been cleaned up."
+            )
         ),
     }
 
