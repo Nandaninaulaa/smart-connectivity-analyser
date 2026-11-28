@@ -36,12 +36,14 @@ def test_combined_ai_analysis_preserves_anomaly_when_prediction_fails(
     response = client.get("/api/ai/analyze")
 
     assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert response.json()["available"] is True
     assert response.json()["status"] == "partial"
     assert response.json()["prediction"] is None
     assert response.json()["anomaly"] == ANOMALY
     assert response.json()["errors"]["prediction"] == {
         "status_code": 503,
-        "message": "Analysis failed.",
+        "message": "AI component is unavailable.",
     }
     assert "private" not in response.text
 
@@ -59,10 +61,15 @@ def test_combined_ai_analysis_preserves_prediction_when_anomaly_fails(
     response = client.get("/api/ai/analyze")
 
     assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert response.json()["available"] is True
     assert response.json()["status"] == "partial"
     assert response.json()["prediction"] == PREDICTION
     assert response.json()["anomaly"] is None
-    assert "anomaly" in response.json()["errors"]
+    assert response.json()["errors"]["anomaly"] == {
+        "status_code": 503,
+        "message": "AI component is unavailable.",
+    }
 
 
 def test_combined_ai_analysis_reports_structured_total_failure(

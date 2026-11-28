@@ -1498,8 +1498,8 @@ def ai_analyze():
             errors[name] = {
                 "status_code": error.status_code,
                 "message": (
-                    "Analysis is unavailable."
-                    if error.status_code < 500
+                    "AI component is unavailable."
+                    if error.status_code == 503
                     else "Analysis failed."
                 ),
             }
@@ -1514,7 +1514,7 @@ def ai_analyze():
     status = "success" if not failed else "error" if not succeeded else "partial"
 
     return {
-        "success": succeeded > 0,
+        "success": succeeded == 2,
         "available": succeeded > 0,
         "status": status,
         "prediction": results.get("prediction"),
